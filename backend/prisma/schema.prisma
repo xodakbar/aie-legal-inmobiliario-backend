@@ -12,32 +12,59 @@ model Usuario {
   nombre    String
   email     String    @unique
   password  String
+  rol       String    @default("user") // "admin", "user", "agente", etc.
+  propiedades Propiedad[]
+}
+
+
+model Region {
+  id      Int       @id @default(autoincrement())
+  nombre  String    @unique
+  ciudades Ciudad[]
+}
+
+model Ciudad {
+  id        Int     @id @default(autoincrement())
+  nombre    String
+  regionId  Int
+  region    Region  @relation(fields: [regionId], references: [id])
+  comunas   Comuna[]
+}
+
+model Comuna {
+  id        Int     @id @default(autoincrement())
+  nombre    String
+  ciudadId  Int
+  ciudad    Ciudad  @relation(fields: [ciudadId], references: [id])
   propiedades Propiedad[]
 }
 
 model Propiedad {
-  id           Int      @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   titulo       String
   precio       Float
-  imagen       String   // Imagen principal
+  imagen       String
   imagenes     String[]
-  location     String
   descripcion  String
   status       String   // "venta" o "arriendo"
   type         String   // "departamento" | "casa" | "terreno"
   bedrooms     Int?
   bathrooms    Int?
-  area         Int?     // m²
+  area         Int?
   address      String?
   lat          Float?
   lng          Float?
+  comunaId     Int
+  comuna       Comuna    @relation(fields: [comunaId], references: [id])
   parking      Int?
   bodega       Int?
   yearBuilt    Int?
-  expenses     Int?     // Gastos comunes
+  expenses     Int?
   publishedAt  DateTime?
   usuarioId    Int
-  usuario      Usuario  @relation(fields: [usuarioId], references: [id])
-  createdAt    DateTime @default(now())
+  usuario      Usuario   @relation(fields: [usuarioId], references: [id])
+  createdAt    DateTime  @default(now())
 }
+
+
 

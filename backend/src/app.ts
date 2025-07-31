@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes';
 import propiedadRoutes from './routes/propiedad.routes';
+import userRoutes from './routes/user.routes';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
@@ -25,6 +27,11 @@ app.use((req, res, next) => {
 
 // Rutas de autenticación y propiedades
 app.use('/api/auth', authRoutes);
+
 app.use('/api/propiedades', propiedadRoutes);
+
+app.use('/api/users', userRoutes);
+
+app.use('/api/admin', adminRoutes);
 
 export default app;
