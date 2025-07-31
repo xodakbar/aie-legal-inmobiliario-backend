@@ -95,8 +95,8 @@ export const createPropiedad = async (req: Request, res: Response) => {
 
     // Resto de campos igual
     const {
-      titulo, descripcion, precio, location, status, type, bedrooms, bathrooms,
-      area, address, lat, lng, parking, bodega, yearBuilt, expenses, publishedAt, usuarioId
+      titulo, descripcion, precio,  status, type, bedrooms, bathrooms,
+      area, address, lat, lng, parking, bodega, yearBuilt, expenses, publishedAt, usuarioId,comunaId
     } = req.body;
 
     const propiedad = await prisma.propiedad.create({
@@ -106,7 +106,6 @@ export const createPropiedad = async (req: Request, res: Response) => {
         precio: Number(precio),
         imagen: imagenUrl,
         imagenes: imagenesUrls,
-        location,
         status,
         type,
         bedrooms: bedrooms ? Number(bedrooms) : undefined,
@@ -121,6 +120,7 @@ export const createPropiedad = async (req: Request, res: Response) => {
         expenses: expenses ? Number(expenses) : undefined,
         publishedAt: publishedAt ? new Date(publishedAt) : undefined,
         usuarioId: Number(usuarioId),
+        comunaId: Number(comunaId), 
       },
     });
 
