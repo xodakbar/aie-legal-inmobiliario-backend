@@ -207,24 +207,32 @@ export const updatePropiedad = async (req: Request, res: Response) => {
     let imagenUrl = imagenesTotales.length > 0 ? imagenesTotales[0] : '';
 
     const updated = await prisma.propiedad.update({
-      where: { id: Number(id) },
-      data: {
-        ...req.body,
-        imagen: imagenUrl,
-        imagenes: imagenesTotales,
-        bedrooms: req.body.bedrooms ? Number(req.body.bedrooms) : undefined,
-        bathrooms: req.body.bathrooms ? Number(req.body.bathrooms) : undefined,
-        area: req.body.area ? Number(req.body.area) : undefined,
-        lat: req.body.lat ? Number(req.body.lat) : undefined,
-        lng: req.body.lng ? Number(req.body.lng) : undefined,
-        parking: req.body.parking ? Number(req.body.parking) : undefined,
-        bodega: req.body.bodega ? Number(req.body.bodega) : undefined,
-        yearBuilt: req.body.yearBuilt ? Number(req.body.yearBuilt) : undefined,
-        expenses: req.body.expenses ? Number(req.body.expenses) : undefined,
-        publishedAt: req.body.publishedAt ? new Date(req.body.publishedAt) : undefined,
-        usuarioId: req.body.usuarioId ? Number(req.body.usuarioId) : undefined,
-      }
-    });
+  where: { id: Number(id) },
+  data: {
+    titulo: req.body.titulo,
+    descripcion: req.body.descripcion,
+    precio: req.body.precio ? Number(req.body.precio) : undefined,
+    imagen: imagenUrl,
+    imagenes: imagenesTotales,
+    status: req.body.status,
+    type: req.body.type,
+    bedrooms: req.body.bedrooms ? Number(req.body.bedrooms) : undefined,
+    bathrooms: req.body.bathrooms ? Number(req.body.bathrooms) : undefined,
+    area: req.body.area ? Number(req.body.area) : undefined,
+    address: req.body.address,
+    lat: req.body.lat ? Number(req.body.lat) : undefined,
+    lng: req.body.lng ? Number(req.body.lng) : undefined,
+    parking: req.body.parking ? Number(req.body.parking) : undefined,
+    bodega: req.body.bodega ? Number(req.body.bodega) : undefined,
+    yearBuilt: req.body.yearBuilt ? Number(req.body.yearBuilt) : undefined,
+    expenses: req.body.expenses ? Number(req.body.expenses) : undefined,
+    publishedAt: req.body.publishedAt ? new Date(req.body.publishedAt) : undefined,
+    usuarioId: req.body.usuarioId ? Number(req.body.usuarioId) : undefined,
+    comunaId: req.body.comunaId ? Number(req.body.comunaId) : undefined,
+    // quita los campos que NO existan en el modelo de Prisma aquí
+  }
+});
+
     res.json(updated);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -242,14 +250,27 @@ export const deletePropiedad = async (req: Request, res: Response) => {
   }
 };
 
+// propiedad.controller.ts
 export const getPropiedadById = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const propiedad = await prisma.propiedad.findUnique({ where: { id: Number(id) } });
+    const propiedad = await prisma.propiedad.findUnique({
+      where: { id: Number(id) },
+      include: {
+        comuna: {
+          include: {
+            ciudad: {
+              include: { region: true }
+            }
+          }
+        }
+      }
+    });
     if (!propiedad) return res.status(404).json({ error: 'Propiedad no encontrada' });
     res.json(propiedad);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 };
+
 
