@@ -1,19 +1,19 @@
 import { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs'; // puedes usar bcryptjs o bcrypt
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 export const register = async (req: Request, res: Response) => {
-  const { nombre, email, password, rol } = req.body;
+  const { nombre, email, password } = req.body;
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.usuario.create({
       data: { nombre, email, password: hashedPassword, rol: "user" }
     });
-    res.status(201).json({ 
-      message: 'Usuario creado', 
+    res.status(201).json({
+      message: 'Usuario creado',
       user: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol }
     });
   } catch (error: any) {
@@ -24,19 +24,19 @@ export const register = async (req: Request, res: Response) => {
   }
 };
 
-
 export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
   try {
     const user = await prisma.usuario.findUnique({ where: { email } });
-    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    // Nunca revelar si el usuario existe o no
+    if (!user) return res.status(400).json({ error: 'Credenciales inválidas' });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: 'Credenciales inválidas' });
+    if (!isMatch) return res.status(400).json({ error: 'Credenciales inválidas' });
 
     const token = jwt.sign(
-      { userId: user.id, rol: user.rol },
-      process.env.JWT_SECRET as string,
+      { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol },
+      process.env.JWT_SECRET || 'supersecret', // ¡Usa un secreto fuerte en prod!
       { expiresIn: '1d' }
     );
     res.json({
@@ -47,4 +47,3 @@ export const login = async (req: Request, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
-

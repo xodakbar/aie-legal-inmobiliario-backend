@@ -29,6 +29,7 @@ model Ciudad {
   regionId  Int
   region    Region  @relation(fields: [regionId], references: [id])
   comunas   Comuna[]
+  @@unique([nombre, regionId]) // <-- ¡Esto es lo importante!
 }
 
 model Comuna {
@@ -37,7 +38,10 @@ model Comuna {
   ciudadId  Int
   ciudad    Ciudad  @relation(fields: [ciudadId], references: [id])
   propiedades Propiedad[]
+  @@unique([nombre, ciudadId]) // <-- ¡Esto también!
 }
+
+
 
 model Propiedad {
   id           Int       @id @default(autoincrement())

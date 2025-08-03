@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getPropiedades, createPropiedad } from '../controllers/propiedad.controller';
+import { getPropiedades, createPropiedad, getPropiedadById } from '../controllers/propiedad.controller';
 import upload from '../middlewares/upload.middleware';
 import { updatePropiedad, deletePropiedad } from '../controllers/propiedad.controller';
 
@@ -10,5 +10,8 @@ router.post('/', upload.array('imagenes', 10), createPropiedad);
 
 router.put('/:id', upload.single('imagen'), updatePropiedad);
 router.delete('/:id', deletePropiedad);
+
+router.get('/:id', getPropiedadById);
+
 
 export default router;

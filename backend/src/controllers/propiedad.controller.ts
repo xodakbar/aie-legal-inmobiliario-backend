@@ -15,7 +15,9 @@ export const getPropiedades = async (req: Request, res: Response) => {
       maxPrecio,
       bedrooms,
       bathrooms,
-      location,
+      regionId,
+      ciudadId,
+      comunaId,
       page = 1,
       pageSize = 10,
       orderBy = 'createdAt:desc',
@@ -28,7 +30,10 @@ export const getPropiedades = async (req: Request, res: Response) => {
     if (type) where.type = type;
     if (bedrooms) where.bedrooms = Number(bedrooms);
     if (bathrooms) where.bathrooms = Number(bathrooms);
-    if (location) where.location = { contains: String(location), mode: 'insensitive' };
+    if (comunaId) where.comunaId = Number(comunaId);
+    // city/region filter via nested relation (optional)
+    // Puedes usarlo en un segundo filtro JS si quieres
+
     if (minPrecio || maxPrecio) {
       where.precio = {};
       if (minPrecio) where.precio.gte = Number(minPrecio);
@@ -43,10 +48,7 @@ export const getPropiedades = async (req: Request, res: Response) => {
     let [campo, sentido] = orderBy.toString().split(':');
     if (!['asc', 'desc'].includes(sentido)) sentido = 'desc'; // default
 
-    // Consulta total (para frontend paginado)
-    const total = await prisma.propiedad.count({ where });
-
-    // Consulta paginada
+    // Ahora hacemos include de comuna → ciudad → region
     const propiedades = await prisma.propiedad.findMany({
       where,
       skip,
@@ -54,19 +56,48 @@ export const getPropiedades = async (req: Request, res: Response) => {
       orderBy: {
         [campo]: sentido,
       },
+      include: {
+        comuna: {
+          include: {
+            ciudad: {
+              include: {
+                region: true,
+              },
+            },
+          },
+        },
+      },
     });
 
+    // Filtro adicional por ciudad o region si llegan por query
+    let filtered = propiedades;
+    if (ciudadId) {
+      filtered = filtered.filter(
+        p => p.comuna && p.comuna.ciudad && p.comuna.ciudad.id === Number(ciudadId)
+      );
+    }
+    if (regionId) {
+      filtered = filtered.filter(
+        p =>
+          p.comuna &&
+          p.comuna.ciudad &&
+          p.comuna.ciudad.region &&
+          p.comuna.ciudad.region.id === Number(regionId)
+      );
+    }
+
     res.json({
-      total,
+      total: filtered.length,
       page: Number(page),
       pageSize: Number(pageSize),
-      totalPages: Math.ceil(total / Number(pageSize)),
-      data: propiedades,
+      totalPages: Math.ceil(filtered.length / Number(pageSize)),
+      data: filtered,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 };
+
 
 const uploadMultipleToCloudinary = (files: Express.Multer.File[]) =>
   Promise.all(files.map(file =>
@@ -90,13 +121,33 @@ export const createPropiedad = async (req: Request, res: Response) => {
       imagenesUrls = await uploadMultipleToCloudinary(req.files);
     }
 
-    // Usa la primera imagen como principal
-    let imagenUrl = imagenesUrls.length > 0 ? imagenesUrls[0] : '';
+    // Recibe el nombre de la imagen principal desde el frontend
+    const mainImageName: string = req.body.mainImageName;
+
+    // Encuentra el índice de la imagen principal según el nombre
+    let mainIdx = -1;
+    if (mainImageName && req.files && Array.isArray(req.files)) {
+      mainIdx = req.files.findIndex((f: any) => f.originalname === mainImageName);
+    }
+
+    // Ordena el array para que la principal quede primera
+    let imagenesOrdenadas = imagenesUrls;
+    let imagenUrl = '';
+    if (mainIdx > -1 && imagenesUrls.length > 0) {
+      imagenUrl = imagenesUrls[mainIdx];
+      imagenesOrdenadas = [
+        imagenesUrls[mainIdx],
+        ...imagenesUrls.filter((_, idx) => idx !== mainIdx),
+      ];
+    } else {
+      imagenUrl = imagenesUrls.length > 0 ? imagenesUrls[0] : '';
+    }
 
     // Resto de campos igual
     const {
-      titulo, descripcion, precio,  status, type, bedrooms, bathrooms,
-      area, address, lat, lng, parking, bodega, yearBuilt, expenses, publishedAt, usuarioId,comunaId
+      titulo, descripcion, precio, status, type, bedrooms, bathrooms,
+      area, address, lat, lng, parking, bodega, yearBuilt, expenses,
+      publishedAt, usuarioId, comunaId
     } = req.body;
 
     const propiedad = await prisma.propiedad.create({
@@ -104,8 +155,8 @@ export const createPropiedad = async (req: Request, res: Response) => {
         titulo,
         descripcion,
         precio: Number(precio),
-        imagen: imagenUrl,
-        imagenes: imagenesUrls,
+        imagen: imagenUrl,            // <- Principal
+        imagenes: imagenesOrdenadas,  // <- Todas, principal primero
         status,
         type,
         bedrooms: bedrooms ? Number(bedrooms) : undefined,
@@ -120,16 +171,17 @@ export const createPropiedad = async (req: Request, res: Response) => {
         expenses: expenses ? Number(expenses) : undefined,
         publishedAt: publishedAt ? new Date(publishedAt) : undefined,
         usuarioId: Number(usuarioId),
-        comunaId: Number(comunaId), 
+        comunaId: Number(comunaId),
       },
     });
+    console.log('REQ.BODY:', req.body);
+
 
     res.status(201).json(propiedad);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 };
-
 
 export const updatePropiedad = async (req: Request, res: Response) => {
   const { id } = req.params;
