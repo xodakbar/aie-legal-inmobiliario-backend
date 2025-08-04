@@ -51,7 +51,7 @@ model Propiedad {
   imagenes     String[]
   descripcion  String
   status       String   // "venta" o "arriendo"
-  type         String   // "departamento" | "casa" | "terreno"
+  type         String   // "departamento" | "casa" | "terreno" | "oficina"
   bedrooms     Int?
   bathrooms    Int?
   area         Int?
