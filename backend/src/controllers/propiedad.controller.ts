@@ -191,53 +191,66 @@ export const updatePropiedad = async (req: Request, res: Response) => {
       nuevasImagenesUrls = await uploadMultipleToCloudinary(req.files);
     }
 
-    // Si recibes otras imágenes en el body (URLs antiguas), combínalas
+    // Lee el campo de imágenes existentes (importante: busca el nombre correcto)
     let imagenesTotales: string[] = [];
-    if (req.body.imagenes) {
+    if (req.body.imagenesExistentes) {
       try {
-        imagenesTotales = JSON.parse(req.body.imagenes);
+        imagenesTotales = JSON.parse(req.body.imagenesExistentes);
       } catch {
         imagenesTotales = [];
       }
     }
-    // Agrega las nuevas imágenes subidas
+    // Agrega las nuevas imágenes subidas (si hay)
     imagenesTotales = imagenesTotales.concat(nuevasImagenesUrls);
 
-    // Usa la primera imagen como principal
-    let imagenUrl = imagenesTotales.length > 0 ? imagenesTotales[0] : '';
+    // Encuentra cuál es la imagen principal
+    let imagenUrl = '';
+    const mainImageName = req.body.mainImageName;
+    if (mainImageName && imagenesTotales.length > 0) {
+      // Busca el URL que coincide con el nombre (para nuevas o antiguas)
+      const found = imagenesTotales.find(imgUrl => {
+        // Para nuevas: Cloudinary URLs, para antiguas: ya es URL
+        // Compara el final de la URL con el nombre de archivo
+        return imgUrl.includes(mainImageName);
+      });
+      imagenUrl = found || imagenesTotales[0];
+    } else if (imagenesTotales.length > 0) {
+      imagenUrl = imagenesTotales[0];
+    }
 
+    // Resto igual
     const updated = await prisma.propiedad.update({
-  where: { id: Number(id) },
-  data: {
-    titulo: req.body.titulo,
-    descripcion: req.body.descripcion,
-    precio: req.body.precio ? Number(req.body.precio) : undefined,
-    imagen: imagenUrl,
-    imagenes: imagenesTotales,
-    status: req.body.status,
-    type: req.body.type,
-    bedrooms: req.body.bedrooms ? Number(req.body.bedrooms) : undefined,
-    bathrooms: req.body.bathrooms ? Number(req.body.bathrooms) : undefined,
-    area: req.body.area ? Number(req.body.area) : undefined,
-    address: req.body.address,
-    lat: req.body.lat ? Number(req.body.lat) : undefined,
-    lng: req.body.lng ? Number(req.body.lng) : undefined,
-    parking: req.body.parking ? Number(req.body.parking) : undefined,
-    bodega: req.body.bodega ? Number(req.body.bodega) : undefined,
-    yearBuilt: req.body.yearBuilt ? Number(req.body.yearBuilt) : undefined,
-    expenses: req.body.expenses ? Number(req.body.expenses) : undefined,
-    publishedAt: req.body.publishedAt ? new Date(req.body.publishedAt) : undefined,
-    usuarioId: req.body.usuarioId ? Number(req.body.usuarioId) : undefined,
-    comunaId: req.body.comunaId ? Number(req.body.comunaId) : undefined,
-    // quita los campos que NO existan en el modelo de Prisma aquí
-  }
-});
+      where: { id: Number(id) },
+      data: {
+        titulo: req.body.titulo,
+        descripcion: req.body.descripcion,
+        precio: req.body.precio ? Number(req.body.precio) : undefined,
+        imagen: imagenUrl,
+        imagenes: imagenesTotales,
+        status: req.body.status,
+        type: req.body.type,
+        bedrooms: req.body.bedrooms ? Number(req.body.bedrooms) : undefined,
+        bathrooms: req.body.bathrooms ? Number(req.body.bathrooms) : undefined,
+        area: req.body.area ? Number(req.body.area) : undefined,
+        address: req.body.address,
+        lat: req.body.lat ? Number(req.body.lat) : undefined,
+        lng: req.body.lng ? Number(req.body.lng) : undefined,
+        parking: req.body.parking ? Number(req.body.parking) : undefined,
+        bodega: req.body.bodega ? Number(req.body.bodega) : undefined,
+        yearBuilt: req.body.yearBuilt ? Number(req.body.yearBuilt) : undefined,
+        expenses: req.body.expenses ? Number(req.body.expenses) : undefined,
+        publishedAt: req.body.publishedAt ? new Date(req.body.publishedAt) : undefined,
+        usuarioId: req.body.usuarioId ? Number(req.body.usuarioId) : undefined,
+        comunaId: req.body.comunaId ? Number(req.body.comunaId) : undefined,
+      }
+    });
 
     res.json(updated);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 };
+
 
 
 export const deletePropiedad = async (req: Request, res: Response) => {

@@ -9,7 +9,6 @@ router.get('/', getPropiedades);
 router.post('/', upload.array('imagenes', 10), createPropiedad);
 router.put('/:id', upload.array('imagenes', 10), updatePropiedad);
 
-router.put('/:id', upload.single('imagen'), updatePropiedad);
 router.delete('/:id', deletePropiedad);
 
 router.get('/:id', getPropiedadById);
