@@ -14,6 +14,7 @@ model Usuario {
   password  String
   rol       String    @default("user") // "admin", "user", "agente", etc.
   propiedades Propiedad[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 
@@ -43,15 +44,20 @@ model Comuna {
 
 
 
+// prisma/schema.prisma
+
 model Propiedad {
-  id           Int       @id @default(autoincrement())
+  id           Int             @id @default(autoincrement())
   titulo       String
   precio       Float
   imagen       String
   imagenes     String[]
   descripcion  String
-  status       String   // "venta" o "arriendo"
-  type         String   // "departamento" | "casa" | "terreno" | "oficina"
+  activo       Boolean         @default(true)
+  statusId     Int
+  status       Status          @relation(fields: [statusId], references: [id])
+  typeId       Int
+  type         PropertyType    @relation(fields: [typeId], references: [id])
   bedrooms     Int?
   bathrooms    Int?
   area         Int?
@@ -59,16 +65,36 @@ model Propiedad {
   lat          Float?
   lng          Float?
   comunaId     Int
-  comuna       Comuna    @relation(fields: [comunaId], references: [id])
+  comuna       Comuna          @relation(fields: [comunaId], references: [id])
   parking      Int?
   bodega       Int?
   yearBuilt    Int?
   expenses     Int?
   publishedAt  DateTime?
   usuarioId    Int
-  usuario      Usuario   @relation(fields: [usuarioId], references: [id])
-  createdAt    DateTime  @default(now())
+  usuario      Usuario         @relation(fields: [usuarioId], references: [id])
+  createdAt    DateTime        @default(now())
+}
+
+model Status {
+  id    Int         @id @default(autoincrement())
+  name  String      @unique
+  props Propiedad[]
+}
+
+model PropertyType {
+  id    Int         @id @default(autoincrement())
+  name  String      @unique
+  props Propiedad[]
 }
 
 
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  user      Usuario  @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
 

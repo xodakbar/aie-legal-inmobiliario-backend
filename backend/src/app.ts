@@ -8,6 +8,8 @@ import adminRoutes from './routes/admin.routes';
 import comunasRoutes from './routes/comunas.routes';
 import regionRoutes from './routes/region.routes';
 import ciudadRoutes from './routes/ciudad.routes';
+import indicatorsRoutes from './routes/indicators.routes';
+
 
 dotenv.config();
 
@@ -45,5 +47,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/comunas', comunasRoutes);
 app.use('/api/regiones', regionRoutes);
 app.use('/api/ciudades', ciudadRoutes);
+app.use('/indicators', indicatorsRoutes);
 
 export default app;
