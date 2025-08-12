@@ -9,7 +9,8 @@ import comunasRoutes from './routes/comunas.routes';
 import regionRoutes from './routes/region.routes';
 import ciudadRoutes from './routes/ciudad.routes';
 import indicatorsRoutes from './routes/indicators.routes';
-
+import statusRoutes from './routes/status.routes';
+import typeRoutes from './routes/type.routes';
 
 dotenv.config();
 
@@ -18,7 +19,7 @@ const app = express();
 // Lista fija de orígenes permitidos (producción + desarrollo)
 const allowedOrigins = [
   'https://aie-inmobiliria-lgeal.netlify.app',
-  'http://localhost:5174',
+  'http://localhost:5173',
 ];
 
 app.use(cors({
@@ -47,6 +48,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/comunas', comunasRoutes);
 app.use('/api/regiones', regionRoutes);
 app.use('/api/ciudades', ciudadRoutes);
-app.use('/indicators', indicatorsRoutes);
-
+app.use('api/indicators', indicatorsRoutes);
+app.use('api/status', statusRoutes);
+app.use('api/types',  typeRoutes);
 export default app;
