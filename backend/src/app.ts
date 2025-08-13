@@ -48,7 +48,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/comunas', comunasRoutes);
 app.use('/api/regiones', regionRoutes);
 app.use('/api/ciudades', ciudadRoutes);
-app.use('api/indicators', indicatorsRoutes);
-app.use('api/status', statusRoutes);
-app.use('api/types',  typeRoutes);
+app.use('/api/indicators', indicatorsRoutes);
+app.use('/api/status', statusRoutes);
+app.use('/api/types',  typeRoutes);
+
 export default app;

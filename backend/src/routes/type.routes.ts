@@ -3,6 +3,6 @@ import { Router } from 'express';
 import { getPropertyTypes } from '../controllers/type.controller';
 const router = Router();
 
-router.get('/types', getPropertyTypes);
+router.get('/', getPropertyTypes);
 
 export default router;
