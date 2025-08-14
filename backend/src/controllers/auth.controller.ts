@@ -54,23 +54,40 @@ export const login = async (req: Request, res: Response) => {
 
 export const forgotPassword = async (req: Request, res: Response) => {
   const { email } = req.body;
-  const user = await prisma.usuario.findUnique({ where: { email } });
-  if (!user) {
-    return res.status(200).json({ message: 'Si el correo existe, recibirás un email.' });
+  try {
+    const user = await prisma.usuario.findUnique({ where: { email } });
+
+    // Siempre respondemos 200 para no filtrar si el correo existe
+    if (!user) {
+      console.log("[forgotPassword] Email no registrado:", email);
+      return res.status(200).json({ message: "Si el correo existe, recibirás un email." });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1h
+
+    await prisma.passwordResetToken.create({
+      data: { token, userId: user.id, expiresAt }
+    });
+
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    console.log("[forgotPassword] resetLink generado:", resetLink);
+
+    try {
+      const info = await sendResetEmail(email, resetLink);
+      console.log("[forgotPassword] sendResetEmail OK:", info);
+    } catch (mailErr: any) {
+      console.error("[forgotPassword] Error al enviar correo:", mailErr?.message || mailErr);
+      // Aun así respondemos 200 para no dar pistas al atacante
+    }
+
+    res.json({ message: "Email de recuperación enviado." });
+  } catch (err: any) {
+    console.error("[forgotPassword] ERROR:", err?.message || err);
+    res.status(500).json({ error: "No se pudo procesar la solicitud" });
   }
-
-  const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-
-  await prisma.passwordResetToken.create({
-    data: { token, userId: user.id, expiresAt }
-  });
-
-  const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
-  await sendResetEmail(email, resetLink);
-
-  res.json({ message: 'Email de recuperación enviado.' });
 };
+
 
 export const resetPassword = async (req: Request, res: Response) => {
   const { token, newPassword } = req.body;
