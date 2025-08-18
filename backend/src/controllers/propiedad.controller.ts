@@ -55,6 +55,7 @@ type PropiedadDTO = {
   id: number;
   titulo: string;
   precio: number;
+  precioUf: number | null;
   imagen: string;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -67,11 +68,12 @@ type PropiedadDTO = {
   comuna: string;
 };
 
-const toDTO = (p: PropiedadListado): PropiedadDTO => ({
+const toDTO = (p: PropiedadListado,ufRate?: number): PropiedadDTO => ({
   id: p.id,
   titulo: p.titulo,
   precio: p.precio,
   imagen: p.imagen,
+  precioUf: ufRate ? Number((p.precio / ufRate).toFixed(2)) : null,
   bedrooms: p.bedrooms ?? null,
   bathrooms: p.bathrooms ?? null,
   area: p.area ?? null,
@@ -104,7 +106,7 @@ export const getPropiedades = async (req: Request, res: Response) => {
       : "createdAt";
     const sentido = (sentidoRaw === "asc" || sentidoRaw === "desc" ? sentidoRaw : "desc") as Prisma.SortOrder;
 
-    // Filtros → TODO en DB (no en memoria)
+    // Filtros en DB
     const and: Prisma.PropiedadWhereInput[] = [];
     if (statusId)  and.push({ statusId: Number(statusId) });
     if (typeId)    and.push({ typeId: Number(typeId) });
@@ -127,7 +129,7 @@ export const getPropiedades = async (req: Request, res: Response) => {
     const skip = (Number(page) - 1) * Number(pageSize);
     const take = Number(pageSize);
 
-    // Query optimizada (select mínimo + filtros relacionales)
+    // Query
     const [total, rows] = await Promise.all([
       prisma.propiedad.count({ where }),
       prisma.propiedad.findMany({
@@ -139,17 +141,36 @@ export const getPropiedades = async (req: Request, res: Response) => {
       }),
     ]);
 
+    // UF del día (cacheada por tu servicio)
+    let ufRate = 0, ufDate = "", ufSource: "cache" | "env" | "external" | undefined = undefined;
+    try {
+      const uf = await fetchUf();
+      ufRate = uf.uf;
+      ufDate = uf.dateISO;
+      ufSource = uf.source;
+    } catch {
+      // si falla, respondemos sin precioUf
+    }
+
+    // Map a DTO con precioUf
+    const data: PropiedadDTO[] = rows.map((p) => toDTO(p, ufRate));
+
+    // ✅ Responder una sola vez
     res.json({
       total,
       page: Number(page),
       pageSize: Number(pageSize),
       totalPages: Math.ceil(total / Number(pageSize)),
-      data: rows.map(toDTO),
+      ufRate: ufRate || undefined,
+      ufDate: ufDate || undefined,
+      ufSource,
+      data,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 };
+
 
 
 
