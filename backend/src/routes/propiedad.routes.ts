@@ -1,17 +1,43 @@
-import { Router } from 'express';
-import { getPropiedades, createPropiedad, getPropiedadById } from '../controllers/propiedad.controller';
-import upload from '../middlewares/upload.middleware';
-import { updatePropiedad, deletePropiedad } from '../controllers/propiedad.controller';
+// src/routes/propiedades.routes.ts
+import { Router } from "express";
+import {
+  getPropiedades,
+  getPropiedadById,
+  createPropiedad,
+  updatePropiedad,
+  deletePropiedad,
+} from "../controllers/propiedad.controller";
+import upload from "../middlewares/upload.middleware";
+import { authenticateToken, authorizeRoles } from "../middlewares/auth";
 
 const router = Router();
 
-router.get('/', getPropiedades);
-router.post('/', upload.array('imagenes', 10), createPropiedad);
-router.put('/:id', upload.array('imagenes', 10), updatePropiedad);
+// Públicas
+router.get("/", getPropiedades);
+router.get("/:id", getPropiedadById);
 
-router.delete('/:id', deletePropiedad);
+// Protegidas (solo admin)
+router.post(
+  "/",
+  authenticateToken,
+  authorizeRoles("admin"),
+  upload.array("imagenes", 36),
+  createPropiedad
+);
 
-router.get('/:id', getPropiedadById);
+router.put(
+  "/:id",
+  authenticateToken,
+  authorizeRoles("admin"),
+  upload.array("imagenes", 36),
+  updatePropiedad
+);
 
+router.delete(
+  "/:id",
+  authenticateToken,
+  authorizeRoles("admin"),
+  deletePropiedad
+);
 
 export default router;

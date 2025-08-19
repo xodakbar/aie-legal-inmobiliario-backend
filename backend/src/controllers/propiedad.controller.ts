@@ -8,6 +8,7 @@ import {
 import cloudinary from '../utils/Cloudinary';
 import { clpToUf, fetchUf } from '../services/uf.service';
 
+
 const prisma = new PrismaClient();
 
 // Helper para subir múltiples imágenes a Cloudinary
@@ -209,10 +210,13 @@ export const getPropiedadById = async (req: Request, res: Response) => {
   }
 };
 
+type AuthRequest = Request & { user?: { id: number; rol?: string } };
 
 
 export const createPropiedad = async (req: Request, res: Response) => {
   try {
+    const userId = req.user?.id; // 👈 del JWT
+    if (!userId) return res.status(401).json({ error: "No autenticado" });
     // Subida de imágenes
     let imagenesUrls: string[] = [];
     if (req.files && Array.isArray(req.files)) {
