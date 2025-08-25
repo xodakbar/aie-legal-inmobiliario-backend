@@ -11,6 +11,7 @@ import ciudadRoutes from './routes/ciudad.routes';
 import indicatorsRoutes from './routes/indicators.routes';
 import statusRoutes from './routes/status.routes';
 import typeRoutes from './routes/type.routes';
+import cookieParser from "cookie-parser";
 
 dotenv.config();
 
@@ -21,7 +22,8 @@ const allowedOrigins = [
   'https://aie-inmobiliria-lgeal.netlify.app',
   'http://localhost:5173',
 ];
-
+app.set("trust proxy", 1);
+app.use(cookieParser());
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {

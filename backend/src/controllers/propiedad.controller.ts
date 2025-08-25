@@ -40,6 +40,7 @@ const listadoSelect = {
   bathrooms: true,
   area: true,
   createdAt: true,
+  activo: true, 
   status: { select: { name: true } },
   type:   { select: { name: true } },
   comuna: {
@@ -62,6 +63,7 @@ type PropiedadDTO = {
   bathrooms: number | null;
   area: number | null;
   createdAt: Date;
+  activo: boolean;
   status: string;
   type: string;
   region: string;
@@ -84,6 +86,7 @@ const toDTO = (p: PropiedadListado,ufRate?: number): PropiedadDTO => ({
   region: p.comuna?.ciudad?.region?.nombre ?? "",
   ciudad: p.comuna?.ciudad?.nombre ?? "",
   comuna: p.comuna?.nombre ?? "",
+  activo: Boolean(p.activo),
 });
 
 // Lista blanca de orden (evita inyección)
@@ -98,7 +101,8 @@ export const getPropiedades = async (req: Request, res: Response) => {
       statusId, typeId, activo, minPrecio, maxPrecio,
       bedrooms, bathrooms, regionId, ciudadId, comunaId,
       page = "1", pageSize = "10", orderBy = "createdAt:desc",
-    } = req.query;
+      q, titulo,
+    } = req.query as any;
 
     // Orden seguro
     let [campoRaw, sentidoRaw] = orderBy.toString().split(":");
@@ -111,7 +115,20 @@ export const getPropiedades = async (req: Request, res: Response) => {
     const and: Prisma.PropiedadWhereInput[] = [];
     if (statusId)  and.push({ statusId: Number(statusId) });
     if (typeId)    and.push({ typeId: Number(typeId) });
-    if (activo !== undefined) and.push({ activo: String(activo) === "true" });
+    if (activo !== undefined) {
+      const v = String(activo).trim().toLowerCase();
+      const activoBool = v === "true" || v === "1" || v === "yes" || v === "on";
+      and.push({ activo: activoBool });
+    }
+    if (q || titulo) {
+      and.push({
+        titulo: {
+          contains: String(q || titulo),
+          mode: "insensitive",
+        },
+      });
+    }
+
     if (bedrooms)  and.push({ bedrooms: Number(bedrooms) });
     if (bathrooms) and.push({ bathrooms: Number(bathrooms) });
     if (comunaId)  and.push({ comunaId: Number(comunaId) });
@@ -212,6 +229,11 @@ export const getPropiedadById = async (req: Request, res: Response) => {
 
 type AuthRequest = Request & { user?: { id: number; rol?: string } };
 
+const parseBool = (v: any): boolean => {
+  if (typeof v === "boolean") return v;
+  const s = String(v).trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on" || s === "sí" || s === "si";
+};
 
 export const createPropiedad = async (req: Request, res: Response) => {
   try {
@@ -269,7 +291,7 @@ export const createPropiedad = async (req: Request, res: Response) => {
 
     const propiedad = await prisma.propiedad.create({
       data: {
-        activo: activo !== undefined ? Boolean(activo) : true,
+        activo: activo !== undefined ? parseBool(activo) : true,
         titulo,
         descripcion,
         precio: Number(precio),
@@ -357,7 +379,7 @@ export const updatePropiedad = async (req: Request, res: Response) => {
     const updated = await prisma.propiedad.update({
       where: { id: Number(id) },
       data: {
-        activo: activo !== undefined ? Boolean(activo) : undefined,
+        activo: activo !== undefined ? parseBool(activo) : undefined,
         titulo,
         descripcion,
         precio: precio ? Number(precio) : undefined,
