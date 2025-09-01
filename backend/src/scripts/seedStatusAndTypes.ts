@@ -4,18 +4,18 @@ const prisma = new PrismaClient();
 async function main() {
   await prisma.status.createMany({
     data: [
-      { name: 'venta' },
-      { name: 'arriendo' },
+      { name: 'Venta' },
+      { name: 'Arriendo' },
     ],
     skipDuplicates: true,
   });
 
   await prisma.propertyType.createMany({
     data: [
-      { name: 'departamento' },
-      { name: 'casa' },
-      { name: 'terreno' },
-      { name: 'oficina' },
+      { name: 'Departamento' },
+      { name: 'Casa' },
+      { name: 'Terreno' },
+      { name: 'Oficina' },
     ],
     skipDuplicates: true,
   });

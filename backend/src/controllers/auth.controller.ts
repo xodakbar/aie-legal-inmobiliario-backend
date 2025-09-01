@@ -12,7 +12,7 @@ const ACCESS_SECRET: Secret = process.env.JWT_SECRET || "supersecret";
 const REFRESH_SECRET: Secret = process.env.JWT_REFRESH_SECRET || ACCESS_SECRET;
 
 // TTLs en segundos (números)
-const ACCESS_TTL_SEC = Number(process.env.JWT_ACCESS_TTL_SEC ?? 900);       // 15 min
+const ACCESS_TTL_SEC = Number(process.env.JWT_ACCESS_TTL_SEC ?? 3600);       // 1 hora
 const REFRESH_TTL_SEC = Number(process.env.JWT_REFRESH_TTL_SEC ?? 604800);  // 7 días
 
 type JWTPayload = { id: number; rol: string; email: string };

@@ -61,6 +61,7 @@ model Propiedad {
   bedrooms     Int?
   bathrooms    Int?
   area         Int?
+  builtArea    Int? 
   address      String?
   lat          Float?
   lng          Float?

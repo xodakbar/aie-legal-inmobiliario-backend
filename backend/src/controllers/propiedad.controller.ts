@@ -35,10 +35,11 @@ const listadoSelect = {
   id: true,
   titulo: true,
   precio: true,
-  imagen: true,           // principal para card
-  bedrooms: true,         // útiles en la card
+  imagen: true,           
+  bedrooms: true,         
   bathrooms: true,
   area: true,
+  builtArea: true,
   createdAt: true,
   activo: true, 
   status: { select: { name: true } },
@@ -62,6 +63,7 @@ type PropiedadDTO = {
   bedrooms: number | null;
   bathrooms: number | null;
   area: number | null;
+  builtArea: number | null;
   createdAt: Date;
   activo: boolean;
   status: string;
@@ -80,6 +82,7 @@ const toDTO = (p: PropiedadListado,ufRate?: number): PropiedadDTO => ({
   bedrooms: p.bedrooms ?? null,
   bathrooms: p.bathrooms ?? null,
   area: p.area ?? null,
+  builtArea: p.area ?? null,
   createdAt: p.createdAt,
   status: p.status?.name ?? "",
   type: p.type?.name ?? "",
@@ -275,6 +278,7 @@ export const createPropiedad = async (req: Request, res: Response) => {
       bedrooms,
       bathrooms,
       area,
+      builtArea,
       address,
       lat,
       lng,
@@ -302,6 +306,7 @@ export const createPropiedad = async (req: Request, res: Response) => {
         bedrooms: bedrooms ? Number(bedrooms) : undefined,
         bathrooms: bathrooms ? Number(bathrooms) : undefined,
         area: area ? Number(area) : undefined,
+        builtArea: builtArea ? Number(builtArea) : undefined,
         address,
         lat: lat ? Number(lat) : undefined,
         lng: lng ? Number(lng) : undefined,
@@ -362,6 +367,7 @@ export const updatePropiedad = async (req: Request, res: Response) => {
       bedrooms,
       bathrooms,
       area,
+      builtArea,
       address,
       lat,
       lng,
@@ -390,6 +396,7 @@ export const updatePropiedad = async (req: Request, res: Response) => {
         bedrooms: bedrooms ? Number(bedrooms) : undefined,
         bathrooms: bathrooms ? Number(bathrooms) : undefined,
         area: area ? Number(area) : undefined,
+        builtArea: builtArea ? Number(builtArea) : undefined,
         address,
         lat: lat ? Number(lat) : undefined,
         lng: lng ? Number(lng) : undefined,
