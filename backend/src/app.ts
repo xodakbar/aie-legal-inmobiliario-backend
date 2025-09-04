@@ -21,6 +21,7 @@ const app = express();
 const allowedOrigins = [
   'https://aie-inmobiliria-lgeal.netlify.app',
   'http://localhost:5173',
+  'https://www.ayelegaleinmobiliario.cl',
 ];
 app.set("trust proxy", 1);
 app.use(cookieParser());
