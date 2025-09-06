@@ -8,15 +8,26 @@ datasource db {
 }
 
 model Usuario {
-  id        Int       @id @default(autoincrement())
-  nombre    String
-  email     String    @unique
-  password  String
-  rol       String    @default("user") // "admin", "user", "agente", etc.
-  propiedades Propiedad[]
-  passwordResetTokens PasswordResetToken[]
-}
+  id                     Int                      @id @default(autoincrement())
+  nombre                 String
+  email                  String                   @unique
+  password               String
+  rol                    String                   @default("user") // "admin", "user", "agente", etc.
 
+  // NUEVO: flujo primer inicio + trazabilidad
+  mustChangePassword     Boolean                  @default(false)
+  passwordLastChangedAt  DateTime?
+  isActive               Boolean                  @default(true)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+
+  // Relaciones existentes
+  propiedades            Propiedad[]
+  passwordResetTokens    PasswordResetToken[]
+
+  @@index([rol])
+  @@index([isActive])
+}
 
 model Region {
   id      Int       @id @default(autoincrement())
@@ -89,13 +100,23 @@ model PropertyType {
   props Propiedad[]
 }
 
+enum PasswordTokenType {
+  reset    // "olvidé mi contraseña"
+  invite   // "establecer contraseña" por invitación
+}
 
 model PasswordResetToken {
-  id        Int      @id @default(autoincrement())
-  token     String   @unique
-  userId    Int
-  user      Usuario  @relation(fields: [userId], references: [id])
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id         Int               @id @default(autoincrement())
+  token      String            @unique
+  userId     Int
+  user       Usuario           @relation(fields: [userId], references: [id])
+  expiresAt  DateTime
+  createdAt  DateTime          @default(now())
+  type       PasswordTokenType @default(reset)
+
+  usedAt     DateTime?         // útil para invalidar por uso
+
+  @@index([userId, type])
+  @@index([expiresAt])
 }
 
