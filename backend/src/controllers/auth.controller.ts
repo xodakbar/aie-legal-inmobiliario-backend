@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import jwt, { type Secret } from "jsonwebtoken";
+import jwt, { type Secret, type SignOptions } from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 import { sendResetEmail } from "../utils/mailer";
 import * as crypto from "crypto";
@@ -12,18 +12,24 @@ const ACCESS_SECRET: Secret = process.env.JWT_SECRET || "supersecret";
 const REFRESH_SECRET: Secret = process.env.JWT_REFRESH_SECRET || ACCESS_SECRET;
 
 // TTLs en segundos (números)
-const ACCESS_TTL_SEC = Number(process.env.JWT_ACCESS_TTL_SEC ?? 3600);       // 1 hora
+const ACCESS_TTL_SEC = Number(process.env.JWT_ACCESS_TTL_SEC ?? 3600);      // 1 hora
 const REFRESH_TTL_SEC = Number(process.env.JWT_REFRESH_TTL_SEC ?? 604800);  // 7 días
+const ACCESS_TTL_WHILE_FORCED_CHANGE = Number(process.env.JWT_FORCED_CHANGE_TTL_SEC ?? 900); // 15 min
 
-type JWTPayload = { id: number; rol: string; email: string };
+// Payload con flag de primer login
+type JWTPayload = {
+  id: number;
+  rol: string;
+  email: string;
+  mustChangePassword?: boolean;
+};
 
-const signAccessToken = (p: JWTPayload) =>
-  jwt.sign(p, ACCESS_SECRET, { expiresIn: ACCESS_TTL_SEC });
+// Helpers para firmar
+const signAccessToken = (p: JWTPayload, opts?: SignOptions) =>
+  jwt.sign(p, ACCESS_SECRET, { expiresIn: ACCESS_TTL_SEC, ...opts });
 
-const signRefreshToken = (p: JWTPayload) =>
-  jwt.sign(p, REFRESH_SECRET, { expiresIn: REFRESH_TTL_SEC });
-
-
+const signRefreshToken = (p: JWTPayload, opts?: SignOptions) =>
+  jwt.sign(p, REFRESH_SECRET, { expiresIn: REFRESH_TTL_SEC, ...opts });
 
 const setRefreshCookie = (res: Response, token: string) => {
   res.cookie("refresh_token", token, {
@@ -31,7 +37,7 @@ const setRefreshCookie = (res: Response, token: string) => {
     sameSite: "lax", // usa 'none' + secure:true si es cross-site en https
     secure: process.env.NODE_ENV === "production",
     path: "/api/auth/refresh",
-    maxAge: 7 * 24 * 60 * 60 * 1000, // alínealo con REFRESH_TTL
+    maxAge: REFRESH_TTL_SEC * 1000, // alínealo con REFRESH_TTL
   });
 };
 
@@ -44,15 +50,37 @@ const clearRefreshCookie = (res: Response) => {
   });
 };
 
+// Sencilla validación de password (ajusta a tu política)
+function isStrongPassword(p: string) {
+  return (
+    typeof p === "string" &&
+    p.length >= 8 &&
+    /[A-Z]/.test(p) &&
+    /[a-z]/.test(p) &&
+    /[0-9]/.test(p)
+  );
+}
+
 // =====================
 //       Register
 // =====================
 export const register = async (req: Request, res: Response) => {
   const { nombre, email, password } = req.body;
   try {
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({ error: "Contraseña insegura" });
+    }
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.usuario.create({
-      data: { nombre, email, password: hashedPassword, rol: "user" },
+      data: {
+        nombre,
+        email,
+        password: hashedPassword,
+        rol: "user",
+        // por defecto no forzamos cambio (esto es para invitaciones o seeds)
+        mustChangePassword: false,
+        passwordLastChangedAt: new Date(),
+      } as any,
     });
     res.status(201).json({
       message: "Usuario creado",
@@ -70,7 +98,8 @@ export const register = async (req: Request, res: Response) => {
 //        Login
 // =====================
 export const login = async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+  const { email, password } = req.body as { email: string; password: string };
+
   try {
     const user = await prisma.usuario.findUnique({ where: { email } });
     if (!user) return res.status(400).json({ error: "Credenciales inválidas" });
@@ -78,20 +107,35 @@ export const login = async (req: Request, res: Response) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: "Credenciales inválidas" });
 
-    const payload: JWTPayload = { id: user.id, rol: user.rol, email: user.email };
-    const accessToken = signAccessToken(payload);
-    const refreshToken = signRefreshToken(payload);
+    // incluir flag en payload
+    const payload: JWTPayload = {
+      id: user.id,
+      rol: user.rol,
+      email: user.email,
+      mustChangePassword: (user as any).mustChangePassword ?? false,
+    };
 
-    // cookie HttpOnly con refresh
+    // si debe cambiar contraseña, access token más corto
+    const accessToken = signAccessToken(payload, {
+      expiresIn: payload.mustChangePassword ? ACCESS_TTL_WHILE_FORCED_CHANGE : ACCESS_TTL_SEC,
+    });
+
+    const refreshToken = signRefreshToken(payload);
     setRefreshCookie(res, refreshToken);
 
-    // devolvemos accessToken + datos públicos
-    res.json({
+    return res.json({
       accessToken,
-      user: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol },
+      requiresPasswordChange: !!payload.mustChangePassword,
+      user: {
+        id: user.id,
+        nombre: user.nombre,
+        email: user.email,
+        rol: user.rol,
+      },
     });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error(error);
+    return res.status(500).json({ error: "INTERNAL_ERROR" });
   }
 };
 
@@ -104,20 +148,31 @@ export const refresh = async (req: Request, res: Response) => {
 
   try {
     const decoded = jwt.verify(rt, REFRESH_SECRET) as JWTPayload & { iat: number; exp: number };
-    // opcional: validar que el usuario sigue existiendo
+
+    // Validar que el usuario sigue existiendo y traer flag real
     const user = await prisma.usuario.findUnique({ where: { id: decoded.id } });
     if (!user) {
       clearRefreshCookie(res);
       return res.status(401).json({ error: "Usuario inexistente" });
     }
 
-    const payload: JWTPayload = { id: user.id, rol: user.rol, email: user.email };
-    const newAccess = signAccessToken(payload);
-    const newRefresh = signRefreshToken(payload); // rotación simple
+    const payload: JWTPayload = {
+      id: user.id,
+      rol: user.rol,
+      email: user.email,
+      mustChangePassword: (user as any).mustChangePassword ?? false,
+    };
+
+    const newAccess = signAccessToken(payload, {
+      expiresIn: payload.mustChangePassword ? ACCESS_TTL_WHILE_FORCED_CHANGE : ACCESS_TTL_SEC,
+    });
+
+    // Rotación simple del refresh (con el flag actualizado)
+    const newRefresh = signRefreshToken(payload);
     setRefreshCookie(res, newRefresh);
 
-    return res.json({ accessToken: newAccess });
-  } catch {
+    return res.json({ accessToken: newAccess, requiresPasswordChange: !!payload.mustChangePassword });
+  } catch (e) {
     clearRefreshCookie(res);
     return res.status(401).json({ error: "Refresh inválido" });
   }
@@ -138,10 +193,10 @@ export const me = async (req: Request, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "No autenticado" });
   const user = await prisma.usuario.findUnique({
     where: { id: req.user.id },
-    select: { id: true, nombre: true, email: true, rol: true },
+    select: { id: true, nombre: true, email: true, rol: true, mustChangePassword: true },
   });
   if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
-  res.json({ user });
+  res.json({ user, requiresPasswordChange: !!user.mustChangePassword });
 };
 
 // =====================
@@ -183,18 +238,71 @@ export const forgotPassword = async (req: Request, res: Response) => {
 export const resetPassword = async (req: Request, res: Response) => {
   const { token, newPassword } = req.body;
 
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({ error: "Contraseña insegura" });
+  }
+
   const record = await prisma.passwordResetToken.findUnique({ where: { token } });
   if (!record || record.expiresAt < new Date()) {
     return res.status(400).json({ error: "Token inválido o expirado." });
-    }
+  }
 
   const hashed = await bcrypt.hash(newPassword, 10);
   await prisma.usuario.update({
     where: { id: record.userId },
-    data: { password: hashed },
+    data: { password: hashed, passwordLastChangedAt: new Date() },
   });
 
   await prisma.passwordResetToken.deleteMany({ where: { userId: record.userId } });
 
   res.json({ message: "Contraseña actualizada exitosamente." });
+};
+
+// =====================
+//  Change (First Login)
+// =====================
+export const changePassword = async (req: Request, res: Response) => {
+  // requiere authenticateToken
+  if (!req.user) return res.status(401).json({ error: "No autenticado" });
+
+  const { newPassword, currentPassword } = req.body as { newPassword: string; currentPassword?: string };
+
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({ error: "Contraseña insegura" });
+  }
+
+  const user = await prisma.usuario.findUnique({ where: { id: req.user.id } });
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  // Si NO está forzado a cambiar, exige currentPassword por seguridad
+  const mustChange = (user as any).mustChangePassword ?? false;
+  if (!mustChange) {
+    if (!currentPassword) return res.status(400).json({ error: "Falta contraseña actual" });
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) return res.status(400).json({ error: "Contraseña actual incorrecta" });
+  }
+
+  const hashed = await bcrypt.hash(newPassword, 10);
+  const updated = await prisma.usuario.update({
+    where: { id: user.id },
+    data: {
+      password: hashed,
+      mustChangePassword: false,
+      passwordLastChangedAt: new Date(),
+    } as any,
+  });
+
+  // Rotar ambos tokens SIN el flag
+  const payload: JWTPayload = {
+    id: updated.id,
+    rol: updated.rol,
+    email: updated.email,
+    mustChangePassword: false,
+  };
+
+  const newAccess = signAccessToken(payload, { expiresIn: ACCESS_TTL_SEC });
+  const newRefresh = signRefreshToken(payload);
+  setRefreshCookie(res, newRefresh);
+
+  return res.json({ message: "PASSWORD_UPDATED", accessToken: newAccess });
 };

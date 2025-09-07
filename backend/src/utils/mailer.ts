@@ -23,11 +23,11 @@ async function buildTransport() {
       port: Number(SMTP_PORT),
       secure, // true: 465, false: 587
       auth: { user: SMTP_USER, pass: SMTP_PASS },
-      logger: true, // <-- logs
-      debug: true,  // <-- logs verbosos
+      logger: true,
+      debug: true,
     });
   } else {
-    // Fallback local de pruebas: Ethereal (NO llega a correo real)
+    // Fallback de pruebas: Ethereal (NO entrega a correos reales)
     const testAccount = await nodemailer.createTestAccount();
     transporter = nodemailer.createTransport({
       host: "smtp.ethereal.email",
@@ -42,7 +42,6 @@ async function buildTransport() {
     }
   }
 
-  // Verifica conexión
   try {
     await transporter.verify();
     console.log("[mailer] Conexión SMTP OK");
@@ -53,6 +52,28 @@ async function buildTransport() {
   return transporter;
 }
 
+/* -----------------------------------------
+   Helpers comunes
+------------------------------------------*/
+function getFromHeader(): string {
+  // siempre la misma casilla para evitar "Relaying disallowed"
+  const fallback = process.env.SMTP_USER || "no-reply@example.com";
+  const display = process.env.MAIL_FROM?.includes("<")
+    ? process.env.MAIL_FROM
+    : `A&E Inmobiliario <${fallback}>`;
+  return display!;
+}
+
+function getEnvelopeFrom(): string {
+  // envelope MAIL FROM debe ser la misma cuenta autenticada
+  return process.env.SMTP_USER!;
+}
+
+const escapeHtml = (s: string) => String(s).replace(/[<>]/g, (c) => ({ "<": "&lt;", ">": "&gt;" }[c]!));
+
+/* -----------------------------------------
+   Emails de recuperación de contraseña
+------------------------------------------*/
 export async function sendResetEmail(to: string, resetLink: string) {
   const t = await buildTransport();
 
@@ -64,7 +85,7 @@ export async function sendResetEmail(to: string, resetLink: string) {
         <h2>Recupera tu contraseña</h2>
         <p>Haz clic en el siguiente botón para restablecer tu contraseña (válido por 1 hora):</p>
         <p>
-          <a href="${resetLink}" 
+          <a href="${resetLink}"
              style="display:inline-block;background:#6d28d9;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">
             Restablecer contraseña
           </a>
@@ -76,14 +97,58 @@ export async function sendResetEmail(to: string, resetLink: string) {
   };
 
   const info = await t.sendMail({
-    from: process.env.MAIL_FROM || "No Reply <no-reply@example.com>",
-    ...mail,
+    from: getFromHeader(),              // header From visible
+    to: mail.to,
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
+    replyTo: process.env.SMTP_USER,     // opcional
+    envelope: { from: getEnvelopeFrom(), to: mail.to }, // MAIL FROM real = contacto
   });
 
-  console.log("[mailer] messageId:", info.messageId);
+  console.log("[mailer] reset messageId:", info.messageId);
   const previewUrl = (nodemailer as any).getTestMessageUrl?.(info);
-  if (previewUrl) {
-    console.log("[mailer] Preview Ethereal:", previewUrl);
-  }
+  if (previewUrl) console.log("[mailer] Preview Ethereal:", previewUrl);
+  return { messageId: info.messageId, previewUrl };
+}
+
+/* -----------------------------------------
+   Email del formulario de contacto
+------------------------------------------*/
+export async function sendContactEmail({
+  nombre,
+  email,
+  mensaje,
+}: { nombre: string; email: string; mensaje: string }) {
+  const t = await buildTransport();
+
+  const to = process.env.CONTACT_TO || process.env.SMTP_USER!;
+  const safeNombre = escapeHtml(nombre);
+  const safeEmail  = escapeHtml(email);
+  const safeMsg    = escapeHtml(mensaje);
+
+  const info = await t.sendMail({
+    from: getFromHeader(),                         // header From = contacto oficial
+    to,
+    subject: `Contacto web: ${safeNombre}`,
+    replyTo: email,                                // responderás directo al visitante
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5">
+        <h2>Nuevo contacto desde la web</h2>
+        <p><b>Nombre:</b> ${safeNombre}</p>
+        <p><b>Email:</b> ${safeEmail}</p>
+        <p><b>Mensaje:</b></p>
+        <div style="white-space:pre-wrap;border:1px solid #eee;padding:12px;border-radius:8px">
+          ${safeMsg}
+        </div>
+      </div>
+    `,
+    text: `Nombre: ${nombre}\nEmail: ${email}\n\nMensaje:\n${mensaje}`,
+    envelope: { from: getEnvelopeFrom(), to },     // MAIL FROM real = contacto
+  });
+
+  console.log("[mailer] contact messageId:", info.messageId);
+  const previewUrl = (nodemailer as any).getTestMessageUrl?.(info);
+  if (previewUrl) console.log("[mailer] Contact Preview Ethereal:", previewUrl);
   return { messageId: info.messageId, previewUrl };
 }

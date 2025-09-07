@@ -19,7 +19,7 @@ model Usuario {
   passwordLastChangedAt  DateTime?
   isActive               Boolean                  @default(true)
   createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
+  updatedAt              DateTime                 @updatedAt @default(now())
 
   // Relaciones existentes
   propiedades            Propiedad[]

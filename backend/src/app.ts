@@ -13,6 +13,7 @@ import ciudadRoutes from './routes/ciudad.routes';
 import indicatorsRoutes from './routes/indicators.routes';
 import statusRoutes from './routes/status.routes';
 import typeRoutes from './routes/type.routes';
+import publicRoutes from "./routes/public.routes";
 
 dotenv.config();
 
@@ -81,6 +82,7 @@ app.use('/api/ciudades', ciudadRoutes);
 app.use('/api/indicators', indicatorsRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/types', typeRoutes);
+app.use('/api', publicRoutes);
 
 // Healthcheck sin DB para probar CORS rápido
 app.get('/healthz', (_req, res) => res.json({ ok: true }));

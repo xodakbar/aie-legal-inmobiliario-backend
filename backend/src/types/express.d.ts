@@ -1,13 +1,16 @@
-// src/types/express.d.ts
-import "express-serve-static-core";
+import "express";
 
-declare module "express-serve-static-core" {
-  interface Request {
-    user?: {
+declare global {
+  namespace Express {
+    interface UserJWT {
       id: number;
       rol?: string;
       email?: string;
-    };
+      mustChangePassword?: boolean;
+    }
+    interface Request {
+      user?: UserJWT;
+    }
   }
 }
 

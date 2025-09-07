@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
-const ADMIN_EMAILS = ['admin@tuportal.cl', 'ingrid.espinoza@ayelegaleinmobiliario.cl'];
+const ADMIN_EMAILS = ['usuario.prueba@gmail.com'];
 async function main() {
   const tempPassword = process.env.ADMIN_TMP_PASS ?? 'Cambiar.123';
   const hash = await bcrypt.hash(tempPassword, 12);
@@ -18,7 +18,7 @@ async function main() {
     } else {
       await prisma.usuario.create({
         data: {
-          nombre: 'Ingrid Espinoza',
+          nombre: 'Prueba Cambiar Contraseña',
           email,
           password: hash,
           rol: 'admin',
