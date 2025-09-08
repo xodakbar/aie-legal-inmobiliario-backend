@@ -1,103 +1,97 @@
+// utils/uploadOptimizado.ts
 import sharp from "sharp";
-import pLimit from "p-limit";
-import cloudinary from "../utils/Cloudinary";
-
+import crypto from "crypto";
+import cld from "./Cloudinary";
 type MulterFile = Express.Multer.File;
 
 const MAX_DIM = 1920;
-const LIMIT = pLimit(4); // <= sube de a 4 en paralelo (ajústalo si quieres)
-const SMALL_FILE_BYTES = 200 * 1024; // ~200 KB: umbral para no recomprimir
+const SMALL_FILE_BYTES = 200 * 1024;
 
-function isPngLike(mime?: string) {
-  return mime?.includes("png") || mime?.includes("svg");
-}
+// --- helpers ---
+const hashBuf = (buf: Buffer) => crypto.createHash("sha1").update(buf).digest("hex");
+const isPngLike = (m?: string) => m?.includes("png") || m?.includes("svg");
 
+// Normaliza y elige codec (igual que el tuyo, pequeño ajuste sin lossless si no hay alpha)
 async function preprocesar(file: MulterFile) {
   const input = file.buffer;
   const meta = await sharp(input, { failOn: "none" }).metadata();
-  const needsResize =
-    !!meta.width && !!meta.height &&
-    (meta.width > MAX_DIM || meta.height > MAX_DIM);
+  const needsResize = !!meta.width && !!meta.height && (meta.width > MAX_DIM || meta.height > MAX_DIM);
 
-  // 1) Evitar recomprimir si ya es pequeño y no necesita resize
   if (!needsResize && input.byteLength <= SMALL_FILE_BYTES) {
-    return { buf: input, ext: (file.mimetype?.split("/")[1] ?? "jpg") as "jpg" | "jpeg" | "png" | "webp" | "avif" };
+    const ext = (file.mimetype?.split("/")[1] ?? "jpg") as "jpg" | "jpeg" | "png" | "webp" | "avif";
+    return { buf: input, ext };
   }
 
-  // Pipeline base: rotar y limitar dimensiones
-  const base = sharp(input, { failOn: "none" })
-    .rotate()
-    .resize({
-      width: MAX_DIM,
-      height: MAX_DIM,
-      fit: "inside",
-      withoutEnlargement: true,
-    });
+  const base = sharp(input, { failOn: "none" }).rotate().resize({
+    width: MAX_DIM, height: MAX_DIM, fit: "inside", withoutEnlargement: true,
+  });
 
   const hasAlpha = !!meta.hasAlpha;
 
-  // 2) Decidir formato candidato(s)
-  // - Si hay alpha o es PNG/ínfografico: WebP (lossless si es gráfico)
-  // - Si es foto: probamos AVIF vs WebP con calidades medias y elegimos el menor
   if (hasAlpha || isPngLike(file.mimetype)) {
-    // WebP lossless conserva transparencia sin artefactos
-    const webp = await base.clone().webp({
-      quality: 80, // se ignora en lossless pero deja margen si el codec decide híbrido
-      lossless: true,
-      effort: 4,
-      alphaQuality: 90,
-    }).toBuffer();
-
+    const webp = await base.webp({ quality: 80, effort: 4, alphaQuality: 90 }).toBuffer();
     return { buf: webp, ext: "webp" as const };
   } else {
-    // Foto: AVIF vs WebP (elige el que pese menos)
     const [avif, webp] = await Promise.all([
-      base.clone().avif({ quality: 50, effort: 4 }).toBuffer(), // AVIF suele ser muy eficiente a q~45-55
-      base.clone().webp({ quality: 78, effort: 4 }).toBuffer(),
+      base.avif({ quality: 50, effort: 4 }).toBuffer(),
+      base.webp({ quality: 78, effort: 4 }).toBuffer(),
     ]);
-
-    if (avif.byteLength <= webp.byteLength * 0.98) {
-      return { buf: avif, ext: "avif" as const };
-    }
-    return { buf: webp, ext: "webp" as const };
+    return avif.byteLength <= webp.byteLength * 0.98
+      ? { buf: avif, ext: "avif" as const }
+      : { buf: webp, ext: "webp" as const };
   }
 }
 
-function uploadStreamCld(buf: Buffer, opts: { folder: string; publicId?: string; format?: string }) {
+function uploadStreamCld(buf: Buffer, opts: { folder: string; public_id: string; format?: string }) {
   return new Promise<string>((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
+    const stream = cld.uploader.upload_stream(
       {
         folder: opts.folder,
+        public_id: opts.public_id,   // nombre determinístico (hash)
         resource_type: "image",
-        use_filename: !!opts.publicId,
-        unique_filename: !opts.publicId,
-        overwrite: false,
-        format: opts.format, // fuerza extensión elegida (avif/webp/png/jpg)
+        overwrite: false,            // NO pisar si ya existe
+        format: opts.format,
       },
-      (err, result) => result?.secure_url ? resolve(result.secure_url) : reject(err)
+      (err, result) => (result?.secure_url ? resolve(result.secure_url) : reject(err))
     );
     stream.end(buf);
   });
 }
 
-export const uploadMultipleToCloudinaryOptimizado = (files: MulterFile[]) =>
-  Promise.all(
-    files.map((file) =>
-      LIMIT(async () => {
-        const { buf, ext } = await preprocesar(file);
-        // Public ID limpio (opcional)
-        const baseName = (file.originalname || "img")
-          .replace(/\.[a-zA-Z0-9]+$/, "")
-          .replace(/[^a-zA-Z0-9-_]+/g, "-")
-          .slice(0, 80);
+// Consulta admin para saber si ya existe el recurso
+async function getExistingUrl(public_id: string, format?: string) {
+  try {
+    const r = await cld.api.resource(public_id, { resource_type: "image" });
+    return r.secure_url as string;
+  } catch {
+    // si no existe, devolvemos null
+    return null;
+  }
+}
 
-        const url = await uploadStreamCld(buf, {
-          folder: "propiedades",
-          publicId: baseName,       // deja que Cloudinary agregue sufijo si hay colisión (unique_filename:false => lo respetaría, pero aquí usamos use_filename con unique true por default)
-          format: ext,              // sube con la extensión/codec final elegido
-        });
+export const uploadMultipleToCloudinaryOptimizado = async (files: MulterFile[]) => {
+  // (opcional) limitar concurrencia simple
+  const CONC = 4;
+  const queue = [...files];
+  const results: string[] = [];
 
-        return url;
-      })
-    )
-  );
+  async function worker() {
+    while (queue.length) {
+      const file = queue.shift()!;
+      const { buf, ext } = await preprocesar(file);
+      const hash = hashBuf(buf);                         // ← hash del contenido normalizado
+      const public_id = `propiedades/${hash}`;           // ← dedupe a nivel global carpeta
+
+      // 1) si existe, usa ese recurso
+      const existing = await getExistingUrl(public_id, ext);
+      if (existing) { results.push(existing); continue; }
+
+      // 2) si no existe, sube una sola vez con el public_id = hash
+      const url = await uploadStreamCld(buf, { folder: "", public_id, format: ext });
+      results.push(url);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONC, files.length) }, () => worker()));
+  return results;
+};

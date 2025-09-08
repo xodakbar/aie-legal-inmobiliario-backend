@@ -1,62 +1,44 @@
-// src/controllers/property.controller.ts
-
-import { Request, Response } from 'express';
-import {
-  PrismaClient,
-  Prisma
-} from '@prisma/client';
-import cloudinary from '../utils/Cloudinary';
-import { clpToUf, fetchUf } from '../services/uf.service';
+// src/controllers/propiedad.controller.ts
+import { Request, Response } from "express";
+import { PrismaClient } from "@prisma/client";
+import cloudinary from "../utils/Cloudinary";
+import { clpToUf, fetchUf } from "../services/uf.service";
 import { uploadMultipleToCloudinaryOptimizado } from "../utils/uploadOptimizado";
+
 type MulterFile = Express.Multer.File;
 
-
-
+// Prisma Client
 const prisma = new PrismaClient();
 
-// Helper para subir múltiples imágenes a Cloudinary
-const uploadMultipleToCloudinary = (files: Express.Multer.File[]) =>
-  Promise.all(
-    files.map(
-      (file) =>
-        new Promise<string>((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            { folder: 'propiedades' },
-            (error, result) => {
-              if (result) resolve(result.secure_url);
-              else reject(error);
-            }
-          );
-          stream.end(file.buffer);
-        })
-    )
-  );
 
-
-// --- SELECT mínimo para LISTADOS (cards de Inicio + tabla Admin) ---
+/* ------------------------- SELECT mínimo para listados ------------------------- */
 const listadoSelect = {
   id: true,
   titulo: true,
   precio: true,
-  imagen: true,           
-  bedrooms: true,         
+  imagen: true,
+  bedrooms: true,
   bathrooms: true,
   area: true,
   builtArea: true,
   createdAt: true,
-  activo: true, 
+  activo: true,
   status: { select: { name: true } },
-  type:   { select: { name: true } },
+  type: { select: { name: true } },
   comuna: {
     select: {
       nombre: true,
-      ciudad: { select: { nombre: true, region: { select: { nombre: true } } } },
+      ciudad: {
+        select: {
+          nombre: true,
+          region: { select: { nombre: true } },
+        },
+      },
     },
   },
 } as const;
 
-type PropiedadListado = Prisma.PropiedadGetPayload<{ select: typeof listadoSelect }>;
-
+/* ------------------------- DTO ------------------------- */
 type PropiedadDTO = {
   id: number;
   titulo: string;
@@ -76,16 +58,16 @@ type PropiedadDTO = {
   comuna: string;
 };
 
-const toDTO = (p: PropiedadListado,ufRate?: number): PropiedadDTO => ({
+const toDTO = (p: any, ufRate?: number): PropiedadDTO => ({
   id: p.id,
   titulo: p.titulo,
   precio: p.precio,
   imagen: p.imagen,
-  precioUf: ufRate ? Number((p.precio / ufRate).toFixed(2)) : null,
+  precioUf: ufRate ? Number((p.precio / (ufRate || 1)).toFixed(2)) : null,
   bedrooms: p.bedrooms ?? null,
   bathrooms: p.bathrooms ?? null,
   area: p.area ?? null,
-  builtArea: p.area ?? null,
+  builtArea: p.builtArea ?? null, // <- corregido (antes leía p.area)
   createdAt: p.createdAt,
   status: p.status?.name ?? "",
   type: p.type?.name ?? "",
@@ -95,19 +77,37 @@ const toDTO = (p: PropiedadListado,ufRate?: number): PropiedadDTO => ({
   activo: Boolean(p.activo),
 });
 
-// Lista blanca de orden (evita inyección)
+/* ------------------------- Orden seguro ------------------------- */
+type SortOrder = "asc" | "desc";
 const ORDER_WHITELIST = new Set<"id" | "createdAt" | "precio" | "titulo">([
-  "id", "createdAt", "precio", "titulo",
+  "id",
+  "createdAt",
+  "precio",
+  "titulo",
 ]);
 
+/* =========================================================
+ *                      CONTROLADORES
+ * =======================================================*/
 
 export const getPropiedades = async (req: Request, res: Response) => {
   try {
     const {
-      statusId, typeId, activo, minPrecio, maxPrecio,
-      bedrooms, bathrooms, regionId, ciudadId, comunaId,
-      page = "1", pageSize = "10", orderBy = "createdAt:desc",
-      q, titulo,
+      statusId,
+      typeId,
+      activo,
+      minPrecio,
+      maxPrecio,
+      bedrooms,
+      bathrooms,
+      regionId,
+      ciudadId,
+      comunaId,
+      page = "1",
+      pageSize = "10",
+      orderBy = "createdAt:desc",
+      q,
+      titulo,
     } = req.query as any;
 
     // Orden seguro
@@ -115,12 +115,13 @@ export const getPropiedades = async (req: Request, res: Response) => {
     const campo = ORDER_WHITELIST.has(campoRaw as any)
       ? (campoRaw as "id" | "createdAt" | "precio" | "titulo")
       : "createdAt";
-    const sentido = (sentidoRaw === "asc" || sentidoRaw === "desc" ? sentidoRaw : "desc") as Prisma.SortOrder;
+    const sentido: SortOrder =
+      sentidoRaw === "asc" || sentidoRaw === "desc" ? sentidoRaw : ("desc" as const);
 
-    // Filtros en DB
-    const and: Prisma.PropiedadWhereInput[] = [];
-    if (statusId)  and.push({ statusId: Number(statusId) });
-    if (typeId)    and.push({ typeId: Number(typeId) });
+    // Filtros (sin tipos Prisma)
+    const and: any[] = [];
+    if (statusId) and.push({ statusId: Number(statusId) });
+    if (typeId) and.push({ typeId: Number(typeId) });
     if (activo !== undefined) {
       const v = String(activo).trim().toLowerCase();
       const activoBool = v === "true" || v === "1" || v === "yes" || v === "on";
@@ -134,20 +135,20 @@ export const getPropiedades = async (req: Request, res: Response) => {
         },
       });
     }
-
-    if (bedrooms)  and.push({ bedrooms: Number(bedrooms) });
+    if (bedrooms) and.push({ bedrooms: Number(bedrooms) });
     if (bathrooms) and.push({ bathrooms: Number(bathrooms) });
-    if (comunaId)  and.push({ comunaId: Number(comunaId) });
-    if (ciudadId)  and.push({ comuna: { ciudadId: Number(ciudadId) } });
-    if (regionId)  and.push({ comuna: { ciudad: { regionId: Number(regionId) } } });
+    if (comunaId) and.push({ comunaId: Number(comunaId) });
+    if (ciudadId) and.push({ comuna: { ciudadId: Number(ciudadId) } });
+    if (regionId) and.push({ comuna: { ciudad: { regionId: Number(regionId) } } });
 
     if (minPrecio || maxPrecio) {
-      const precio: Prisma.FloatFilter = {};
+      const precio: { gte?: number; lte?: number } = {};
       if (minPrecio) precio.gte = Number(minPrecio);
       if (maxPrecio) precio.lte = Number(maxPrecio);
       and.push({ precio });
     }
-    const where: Prisma.PropiedadWhereInput = and.length ? { AND: and } : {};
+
+    const where: any = and.length ? { AND: and } : {};
 
     // Paginación
     const skip = (Number(page) - 1) * Number(pageSize);
@@ -165,8 +166,10 @@ export const getPropiedades = async (req: Request, res: Response) => {
       }),
     ]);
 
-    // UF del día (cacheada por tu servicio)
-    let ufRate = 0, ufDate = "", ufSource: "cache" | "env" | "external" | undefined = undefined;
+    // UF del día
+    let ufRate = 0,
+      ufDate = "",
+      ufSource: "cache" | "env" | "external" | undefined = undefined;
     try {
       const uf = await fetchUf();
       ufRate = uf.uf;
@@ -176,10 +179,9 @@ export const getPropiedades = async (req: Request, res: Response) => {
       // si falla, respondemos sin precioUf
     }
 
-    // Map a DTO con precioUf
-    const data: PropiedadDTO[] = rows.map((p) => toDTO(p, ufRate));
+    // Map a DTO
+    const data: PropiedadDTO[] = rows.map((p: any) => toDTO(p, ufRate));
 
-    // ✅ Responder una sola vez
     res.json({
       total,
       page: Number(page),
@@ -195,9 +197,6 @@ export const getPropiedades = async (req: Request, res: Response) => {
   }
 };
 
-
-
-
 export const getPropiedadById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -212,7 +211,7 @@ export const getPropiedadById = async (req: Request, res: Response) => {
     });
     if (!p) return res.status(404).json({ error: "Propiedad no encontrada" });
 
-    // Trae UF del día y calcula UF sugerida desde CLP
+    // UF del día y cálculo sugerido
     const { uf, dateISO, source } = await fetchUf();
     const ufCalc = p.precio ? clpToUf(p.precio, uf) : null;
 
@@ -226,13 +225,14 @@ export const getPropiedadById = async (req: Request, res: Response) => {
       ufRate: uf,
       ufDate: dateISO,
       ufSource: source,
-      ufCalc, // <— UF calculada para editar
+      ufCalc, // para editar
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 };
 
+/* ------------------------- Helpers extra ------------------------- */
 type AuthRequest = Request & { user?: { id: number; rol?: string } };
 
 const parseBool = (v: any): boolean => {
@@ -241,9 +241,50 @@ const parseBool = (v: any): boolean => {
   return s === "true" || s === "1" || s === "yes" || s === "on" || s === "sí" || s === "si";
 };
 
+const MAX_FOTOS_DEF = 36;
+
+function toNum(v: any) {
+  if (v === undefined || v === null || v === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function tryParseJSON<T = any>(raw: unknown, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    if (typeof raw === "string") return JSON.parse(raw) as T;
+    return (raw as T) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Reordena poniendo `principal` al inicio si existe dentro del array */
+function reorderWithMain(urls: string[], principal?: string) {
+  if (!principal) return urls;
+  const idx = urls.findIndex((u) => u === principal);
+  if (idx <= 0) return urls; // -1 o ya es primera
+  return [urls[idx], ...urls.filter((_, i) => i !== idx)];
+}
+
+/** Dedup preservando orden (primera ocurrencia gana) */
+function dedupePreserve<T>(arr: T[]) {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const it of arr) {
+    const key = String(it);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(it);
+    }
+  }
+  return out;
+}
+
+/* ------------------------- Crear propiedad ------------------------- */
 export const createPropiedad = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id; // 👈 del JWT tipeado
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: "No autenticado" });
 
     // Subida de imágenes (OPTIMIZADA)
@@ -273,7 +314,7 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
       imagenUrl = imagenesUrls[0] || "";
     }
 
-    // Destructurar campos, usando statusId & typeId
+    // Campos
     const {
       activo,
       titulo,
@@ -306,7 +347,7 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
         imagen: imagenUrl,
         imagenes: imagenesOrdenadas,
         status: { connect: { id: Number(statusId) } },
-        type:   { connect: { id: Number(typeId) } },
+        type: { connect: { id: Number(typeId) } },
         bedrooms: bedrooms ? Number(bedrooms) : undefined,
         bathrooms: bathrooms ? Number(bathrooms) : undefined,
         area: area ? Number(area) : undefined,
@@ -320,7 +361,7 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
         expenses: expenses ? Number(expenses) : undefined,
         publishedAt: publishedAt ? new Date(publishedAt) : undefined,
         usuario: { connect: { id: Number(usuarioId) } },
-        comuna:  { connect: { id: Number(comunaId) } },
+        comuna: { connect: { id: Number(comunaId) } },
       },
     });
 
@@ -330,48 +371,7 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
   }
 };
 
-
-
-const MAX_FOTOS_DEF = 36;
-
-function toNum(v: any) {
-  if (v === undefined || v === null || v === "") return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function tryParseJSON<T = any>(raw: unknown, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    if (typeof raw === "string") return JSON.parse(raw) as T;
-    return (raw as T) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-/** reordena poniendo `principal` al inicio si existe dentro del array */
-function reorderWithMain(urls: string[], principal?: string) {
-  if (!principal) return urls;
-  const idx = urls.findIndex((u) => u === principal);
-  if (idx <= 0) return urls; // -1 o ya es primera
-  return [urls[idx], ...urls.filter((_, i) => i !== idx)];
-}
-
-/** dedup preservando orden (primera ocurrencia gana) */
-function dedupePreserve<T>(arr: T[]) {
-  const seen = new Set<string>();
-  const out: T[] = [];
-  for (const it of arr) {
-    const key = String(it);
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(it);
-    }
-  }
-  return out;
-}
-
+/* ------------------------- Actualizar propiedad ------------------------- */
 export const updatePropiedad = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -392,12 +392,15 @@ export const updatePropiedad = async (req: Request, res: Response) => {
 
     // 3) Mezclar + desduplicar + limitar a un máximo
     const maxFotos = toNum(req.body.maxFotos) ?? MAX_FOTOS_DEF;
-    let imagenesTotales = dedupePreserve<string>([...existentes, ...nuevasImagenesUrls]).slice(0, maxFotos);
+    let imagenesTotales = dedupePreserve<string>([
+      ...existentes,
+      ...nuevasImagenesUrls,
+    ]).slice(0, maxFotos);
 
     // 4) Determinar principal: por URL / índice / nombre original
-    const mainImageUrl   = (req.body.mainImageUrl as string | undefined) || undefined;
+    const mainImageUrl = (req.body.mainImageUrl as string | undefined) || undefined;
     const mainImageIndex = toNum(req.body.mainImageIndex);
-    const mainImageName  = (req.body.mainImageName as string | undefined) || undefined;
+    const mainImageName = (req.body.mainImageName as string | undefined) || undefined;
 
     let principal: string | undefined;
 
@@ -407,7 +410,12 @@ export const updatePropiedad = async (req: Request, res: Response) => {
     }
 
     // b) Índice dentro del array
-    if (!principal && mainImageIndex !== undefined && mainImageIndex! >= 0 && mainImageIndex! < imagenesTotales.length) {
+    if (
+      !principal &&
+      mainImageIndex !== undefined &&
+      mainImageIndex! >= 0 &&
+      mainImageIndex! < imagenesTotales.length
+    ) {
       principal = imagenesTotales[mainImageIndex!];
     }
 
@@ -508,11 +516,12 @@ export const updatePropiedad = async (req: Request, res: Response) => {
   }
 };
 
+/* ------------------------- Eliminar propiedad ------------------------- */
 export const deletePropiedad = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     await prisma.propiedad.delete({ where: { id: Number(id) } });
-    res.json({ message: 'Propiedad eliminada' });
+    res.json({ message: "Propiedad eliminada" });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
