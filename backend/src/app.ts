@@ -22,7 +22,8 @@ const app = express();
 /* ===================== CORS FIRST ===================== */
 // Permite configurar por ENV, con default sensato
 const defaultOrigins = [
-  'https://ayelegaleinmobiliario.cl',
+  "https://ayelegaleinmobiliario.cl",     
+  "https://www.ayelegaleinmobiliario.cl",
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];
