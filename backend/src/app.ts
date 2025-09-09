@@ -20,27 +20,32 @@ dotenv.config();
 const app = express();
 
 /* ===================== CORS FIRST ===================== */
-// Permite configurar por ENV, con default sensato
+
 const defaultOrigins = [
-  "https://ayelegaleinmobiliario.cl",     
+  "https://ayelegaleinmobiliario.cl",
   "https://www.ayelegaleinmobiliario.cl",
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
 ];
-const allowedOriginsFromEnv = (process.env.CORS_ORIGINS || '')
-  .split(',')
+
+const allowedOriginsFromEnv = (process.env.CORS_ORIGINS || "")
+  .split(",")
   .map(s => s.trim())
   .filter(Boolean);
 
-const allowedOrigins = allowedOriginsFromEnv.length
-  ? allowedOriginsFromEnv
-  : defaultOrigins;
+const rawAllowed = allowedOriginsFromEnv.length ? allowedOriginsFromEnv : defaultOrigins;
+
+const normalize = (o?: string) =>
+  (o || "").toLowerCase().replace(/\/+$/, ""); // sin slash final
+
+const allowedSet = new Set(rawAllowed.map(normalize));
 
 function isAllowedOrigin(origin?: string) {
-  if (!origin) return true; // permite curl/Postman/SSR sin Origin
-  if (allowedOrigins.includes(origin)) return true;
-  // Opcional: permite previews de Netlify (*.netlify.app)
-  if (origin.endsWith('.netlify.app')) return true;
+  if (!origin) return true; // curl/Postman/SSR
+  const o = normalize(origin);
+  if (allowedSet.has(o)) return true;
+  // Previews de Netlify (opcional)
+  if (o.endsWith(".netlify.app")) return true;
   return false;
 }
 
@@ -48,17 +53,31 @@ const corsOptions: CorsOptions = {
   origin(origin, cb) {
     if (isAllowedOrigin(origin)) return cb(null, true);
     console.warn(`CORS bloqueado para: ${origin}`);
-    return cb(new Error('No permitido por CORS'));
+    return cb(new Error("No permitido por CORS"));
   },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true, // pon en false si NO usas cookies/sesión desde el navegador
+  credentials: true,
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+  // ❌ No fijamos allowedHeaders para que CORS refleje lo que pide el navegador
+  // allowedHeaders: ["Content-Type","Authorization"],  // <-- quitalo
   maxAge: 86400,
 };
 
+app.use((req, _res, next) => {
+  // Log útil para depurar preflight
+  if (req.method === "OPTIONS") {
+    console.log("[CORS] OPTIONS",
+      { origin: req.headers.origin, acrh: req.headers["access-control-request-headers"] }
+    );
+  } else {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} | Origin: ${req.headers.origin}`);
+  }
+  next();
+});
+
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // habilita preflight para todas las rutas
+app.options("*", cors(corsOptions)); // preflight global
 /* ====================================================== */
+
 
 app.set('trust proxy', 1);
 app.use(cookieParser());
