@@ -1,8 +1,35 @@
+// src/utils/mailer.ts
 import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 
 type SendOpts = { to: string; subject: string; html: string; text?: string };
 
 let transporter: nodemailer.Transporter | null = null;
+
+/* -----------------------------------------
+   TRANSPORT SMTP con fallback 465 -> 587
+------------------------------------------*/
+async function tryCreateTransport({
+  host,
+  port,
+  secure,
+}: { host: string; port: number; secure: boolean }) {
+  const t = nodemailer.createTransport({
+    host,
+    port,
+    secure,                 // 465:true | 587:false
+    requireTLS: !secure,    // fuerza STARTTLS cuando secure=false
+    auth: { user: process.env.SMTP_USER!, pass: process.env.SMTP_PASS! },
+    logger: true,
+    debug: true,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+    tls: { servername: host },
+  });
+  await t.verify(); // lanza si no conecta/autentica
+  return t;
+}
 
 async function buildTransport() {
   if (transporter) return transporter;
@@ -12,22 +39,39 @@ async function buildTransport() {
     SMTP_PORT,
     SMTP_USER,
     SMTP_PASS,
-    SMTP_SECURE,
     NODE_ENV,
   } = process.env;
 
   if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
-    const secure = String(SMTP_SECURE ?? "").toLowerCase() === "true";
-    transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT),
-      secure, // true: 465, false: 587
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
-      logger: true,
-      debug: true,
-    });
+    const port = Number(SMTP_PORT);
+    const secure = port === 465;
+
+    try {
+      console.log(`[mailer] Intentando SMTP ${SMTP_HOST}:${port} secure=${secure}`);
+      transporter = await tryCreateTransport({ host: SMTP_HOST, port, secure });
+      console.log("[mailer] Conexión SMTP OK");
+    } catch (errFirst: any) {
+      console.error("[mailer] Falla verify() primer intento:", errFirst?.code || errFirst?.message);
+
+      // Fallback automático si el primer intento fue 465
+      if (port === 465) {
+        try {
+          console.log("[mailer] Reintentando con 587 + STARTTLS…");
+          transporter = await tryCreateTransport({ host: SMTP_HOST, port: 587, secure: false });
+          console.log("[mailer] Conexión SMTP OK con 587/STARTTLS");
+        } catch (errSecond: any) {
+          console.error("[mailer] Falla también en 587:", errSecond?.code || errSecond?.message);
+          throw errSecond;
+        }
+      } else {
+        throw errFirst;
+      }
+    }
   } else {
-    // Fallback de pruebas: Ethereal (NO entrega a correos reales)
+    // En producción evitamos Ethereal para no “creer” que envía
+    if (NODE_ENV === "production") {
+      throw new Error("Faltan variables SMTP en producción (no uso Ethereal).");
+    }
     const testAccount = await nodemailer.createTestAccount();
     transporter = nodemailer.createTransport({
       host: "smtp.ethereal.email",
@@ -37,26 +81,18 @@ async function buildTransport() {
       logger: true,
       debug: true,
     });
-    if (NODE_ENV !== "production") {
-      console.warn("[mailer] Usando Ethereal (solo pruebas).");
-    }
-  }
-
-  try {
+    console.warn("[mailer] Usando Ethereal (solo pruebas).");
     await transporter.verify();
-    console.log("[mailer] Conexión SMTP OK");
-  } catch (e) {
-    console.error("[mailer] Falla en verify()", e);
   }
 
-  return transporter;
+  return transporter!;
 }
 
 /* -----------------------------------------
    Helpers comunes
 ------------------------------------------*/
 function getFromHeader(): string {
-  // siempre la misma casilla para evitar "Relaying disallowed"
+  // Remitente visible. Usa MAIL_FROM si viene con "Nombre <mail>"
   const fallback = process.env.SMTP_USER || "no-reply@example.com";
   const display = process.env.MAIL_FROM?.includes("<")
     ? process.env.MAIL_FROM
@@ -65,18 +101,75 @@ function getFromHeader(): string {
 }
 
 function getEnvelopeFrom(): string {
-  // envelope MAIL FROM debe ser la misma cuenta autenticada
-  return process.env.SMTP_USER!;
+  // MAIL FROM real = cuenta autenticada (para evitar relaying)
+  return process.env.SMTP_USER || (process.env.MAIL_FROM?.match(/<([^>]+)>/)?.[1] ?? "no-reply@example.com");
 }
 
-const escapeHtml = (s: string) => String(s).replace(/[<>]/g, (c) => ({ "<": "&lt;", ">": "&gt;" }[c]!));
+const escapeHtml = (s: string) =>
+  String(s).replace(/[<>]/g, (c) => ({ "<": "&lt;", ">": "&gt;" }[c]!));
+
+/* -----------------------------------------
+   Envío unificado (provider switch)
+------------------------------------------*/
+async function sendViaSMTP(mail: SendOpts) {
+  const t = await buildTransport();
+  try {
+    const info = await t.sendMail({
+      from: getFromHeader(), // header From visible
+      to: mail.to,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+      replyTo: process.env.SMTP_USER, // responde a Zoho si quieres
+      envelope: { from: getEnvelopeFrom(), to: mail.to }, // MAIL FROM real
+    });
+    console.log("[mailer] SMTP sent messageId:", info.messageId);
+    const previewUrl = (nodemailer as any).getTestMessageUrl?.(info);
+    if (previewUrl) console.log("[mailer] Preview Ethereal:", previewUrl);
+    return { messageId: info.messageId, previewUrl };
+  } catch (err) {
+    console.error("[mailer] sendMail SMTP error:", err);
+    throw err;
+  }
+}
+
+async function sendViaSendGrid(mail: SendOpts) {
+  if (!process.env.SENDGRID_API_KEY) {
+    throw new Error("Falta SENDGRID_API_KEY");
+  }
+  if (!process.env.MAIL_FROM) {
+    throw new Error("Falta MAIL_FROM (ej: \"A&E Inmobiliario <contacto@tu-dominio.cl>\")");
+  }
+
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+  try {
+    const [resp] = await sgMail.send({
+      to: mail.to,
+      from: process.env.MAIL_FROM, // debe ser tu dominio autenticado en SendGrid
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+      replyTo: process.env.SMTP_USER || process.env.MAIL_FROM, // respuestas a tu buzón (Zoho)
+    });
+    console.log("[mailer] SendGrid status:", resp.statusCode);
+    return { messageId: resp.headers["x-message-id"] || "sendgrid", previewUrl: undefined };
+  } catch (err) {
+    console.error("[mailer] SendGrid error:", err);
+    throw err;
+  }
+}
+
+async function sendCore(mail: SendOpts) {
+  const provider = (process.env.MAIL_PROVIDER || "smtp").toLowerCase();
+  if (provider === "sendgrid") return sendViaSendGrid(mail);
+  return sendViaSMTP(mail);
+}
 
 /* -----------------------------------------
    Emails de recuperación de contraseña
 ------------------------------------------*/
 export async function sendResetEmail(to: string, resetLink: string) {
-  const t = await buildTransport();
-
   const mail: SendOpts = {
     to,
     subject: "Recupera tu contraseña",
@@ -95,21 +188,7 @@ export async function sendResetEmail(to: string, resetLink: string) {
       </div>`,
     text: `Recupera tu contraseña: ${resetLink}`,
   };
-
-  const info = await t.sendMail({
-    from: getFromHeader(),              // header From visible
-    to: mail.to,
-    subject: mail.subject,
-    html: mail.html,
-    text: mail.text,
-    replyTo: process.env.SMTP_USER,     // opcional
-    envelope: { from: getEnvelopeFrom(), to: mail.to }, // MAIL FROM real = contacto
-  });
-
-  console.log("[mailer] reset messageId:", info.messageId);
-  const previewUrl = (nodemailer as any).getTestMessageUrl?.(info);
-  if (previewUrl) console.log("[mailer] Preview Ethereal:", previewUrl);
-  return { messageId: info.messageId, previewUrl };
+  return sendCore(mail);
 }
 
 /* -----------------------------------------
@@ -120,18 +199,15 @@ export async function sendContactEmail({
   email,
   mensaje,
 }: { nombre: string; email: string; mensaje: string }) {
-  const t = await buildTransport();
+  const to = process.env.CONTACT_TO || process.env.SMTP_USER || email;
 
-  const to = process.env.CONTACT_TO || process.env.SMTP_USER!;
   const safeNombre = escapeHtml(nombre);
   const safeEmail  = escapeHtml(email);
   const safeMsg    = escapeHtml(mensaje);
 
-  const info = await t.sendMail({
-    from: getFromHeader(),                         // header From = contacto oficial
+  const mail: SendOpts = {
     to,
     subject: `Contacto web: ${safeNombre}`,
-    replyTo: email,                                // responderás directo al visitante
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.5">
         <h2>Nuevo contacto desde la web</h2>
@@ -144,11 +220,14 @@ export async function sendContactEmail({
       </div>
     `,
     text: `Nombre: ${nombre}\nEmail: ${email}\n\nMensaje:\n${mensaje}`,
-    envelope: { from: getEnvelopeFrom(), to },     // MAIL FROM real = contacto
-  });
+  };
 
-  console.log("[mailer] contact messageId:", info.messageId);
-  const previewUrl = (nodemailer as any).getTestMessageUrl?.(info);
-  if (previewUrl) console.log("[mailer] Contact Preview Ethereal:", previewUrl);
-  return { messageId: info.messageId, previewUrl };
+  // Para “responder” al visitante, el Reply-To debe apuntar a su email
+  if ((process.env.MAIL_PROVIDER || "smtp").toLowerCase() === "sendgrid") {
+    // SendGrid maneja replyTo en el payload
+    return sendViaSendGrid({ ...mail, text: mail.text });
+  } else {
+    // SMTP usa replyTo en sendMail(); lo setea sendViaSMTP
+    return sendViaSMTP(mail);
+  }
 }
