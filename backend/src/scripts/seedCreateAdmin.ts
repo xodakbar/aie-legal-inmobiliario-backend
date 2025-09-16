@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
-const ADMIN_EMAILS = ['usuario.prueba@gmail.com'];
+const ADMIN_EMAILS = ['usuario.admin@gmail.com'];
 async function main() {
   const tempPassword = process.env.ADMIN_TMP_PASS ?? 'Cambiar.123';
   const hash = await bcrypt.hash(tempPassword, 12);

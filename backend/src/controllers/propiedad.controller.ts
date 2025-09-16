@@ -10,6 +10,25 @@ type MulterFile = Express.Multer.File;
 // Prisma Client
 const prisma = new PrismaClient();
 
+/* ------------------------- YouTube helpers (local) ------------------------- */
+// Si ya tienes estos helpers en utils/youtube, impórtalos y borra esta sección.
+function normalizeYouTubeUrl(input?: string | null): string | null {
+  if (!input) return null;
+  const t = input.trim();
+  if (!t) return null;
+
+  const re = [
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([^&\s]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([^?\s]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([^?\s]+)/i,
+    /^([a-zA-Z0-9_-]{11})$/, // solo ID
+  ];
+  for (const r of re) {
+    const m = t.match(r);
+    if (m && m[1]) return `https://www.youtube.com/watch?v=${m[1]}`;
+  }
+  return null;
+}
 
 /* ------------------------- SELECT mínimo para listados ------------------------- */
 const listadoSelect = {
@@ -21,6 +40,8 @@ const listadoSelect = {
   bathrooms: true,
   area: true,
   builtArea: true,
+  usableArea: true,          // <-- NUEVO
+  youtubeUrl: true,          // <-- NUEVO (útil si quieres card con ícono de video)
   createdAt: true,
   activo: true,
   status: { select: { name: true } },
@@ -49,6 +70,8 @@ type PropiedadDTO = {
   bathrooms: number | null;
   area: number | null;
   builtArea: number | null;
+  usableArea?: number | null;  // <-- NUEVO
+  youtubeUrl?: string | null;  // <-- NUEVO
   createdAt: Date;
   activo: boolean;
   status: string;
@@ -67,7 +90,9 @@ const toDTO = (p: any, ufRate?: number): PropiedadDTO => ({
   bedrooms: p.bedrooms ?? null,
   bathrooms: p.bathrooms ?? null,
   area: p.area ?? null,
-  builtArea: p.builtArea ?? null, // <- corregido (antes leía p.area)
+  builtArea: p.builtArea ?? null,
+  usableArea: p.usableArea ?? null,   // <-- NUEVO
+  youtubeUrl: p.youtubeUrl ?? null,   // <-- NUEVO
   createdAt: p.createdAt,
   status: p.status?.name ?? "",
   type: p.type?.name ?? "",
@@ -324,6 +349,8 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
       bathrooms,
       area,
       builtArea,
+      usableArea,         // <-- NUEVO
+      youtubeUrl,         // <-- NUEVO
       address,
       lat,
       lng,
@@ -352,6 +379,8 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
         bathrooms: bathrooms ? Number(bathrooms) : undefined,
         area: area ? Number(area) : undefined,
         builtArea: builtArea ? Number(builtArea) : undefined,
+        usableArea: usableArea ? Number(usableArea) : undefined,            // <-- NUEVO
+        youtubeUrl: normalizeYouTubeUrl(youtubeUrl) ?? undefined,          // <-- NUEVO
         address,
         lat: lat ? Number(lat) : undefined,
         lng: lng ? Number(lng) : undefined,
@@ -450,6 +479,8 @@ export const updatePropiedad = async (req: Request, res: Response) => {
       bathrooms,
       area,
       builtArea,
+      usableArea,   // <-- NUEVO
+      youtubeUrl,   // <-- NUEVO
       address,
       lat,
       lng,
@@ -473,6 +504,8 @@ export const updatePropiedad = async (req: Request, res: Response) => {
       ...(bathrooms !== undefined ? { bathrooms: toNum(bathrooms) } : {}),
       ...(area !== undefined ? { area: toNum(area) } : {}),
       ...(builtArea !== undefined ? { builtArea: toNum(builtArea) } : {}),
+      ...(usableArea !== undefined ? { usableArea: toNum(usableArea) } : {}),                  // <-- NUEVO
+      ...(youtubeUrl !== undefined ? { youtubeUrl: normalizeYouTubeUrl(youtubeUrl) } : {}),    // <-- NUEVO
       ...(address !== undefined ? { address } : {}),
       ...(lat !== undefined ? { lat: toNum(lat) } : {}),
       ...(lng !== undefined ? { lng: toNum(lng) } : {}),

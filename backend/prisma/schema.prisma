@@ -72,7 +72,8 @@ model Propiedad {
   bedrooms     Int?
   bathrooms    Int?
   area         Int?
-  builtArea    Int? 
+  builtArea    Int?
+  usableArea   Int?            @map("usable_area")
   address      String?
   lat          Float?
   lng          Float?
@@ -82,6 +83,7 @@ model Propiedad {
   bodega       Int?
   yearBuilt    Int?
   expenses     Int?
+  youtubeUrl   String?         @db.VarChar(255) @map("youtube_url")
   publishedAt  DateTime?
   usuarioId    Int
   usuario      Usuario         @relation(fields: [usuarioId], references: [id])
