@@ -40,8 +40,9 @@ const listadoSelect = {
   bathrooms: true,
   area: true,
   builtArea: true,
-  usableArea: true,          // <-- NUEVO
-  youtubeUrl: true,          // <-- NUEVO (útil si quieres card con ícono de video)
+  usableArea: true,         
+  youtubeUrl: true,         
+  kitchen: true, 
   createdAt: true,
   activo: true,
   status: { select: { name: true } },
@@ -72,6 +73,7 @@ type PropiedadDTO = {
   builtArea: number | null;
   usableArea?: number | null;  // <-- NUEVO
   youtubeUrl?: string | null;  // <-- NUEVO
+  kitchen?: boolean;
   createdAt: Date;
   activo: boolean;
   status: string;
@@ -100,7 +102,19 @@ const toDTO = (p: any, ufRate?: number): PropiedadDTO => ({
   ciudad: p.comuna?.ciudad?.nombre ?? "",
   comuna: p.comuna?.nombre ?? "",
   activo: Boolean(p.activo),
+  kitchen: Boolean(p.kitchen),
 });
+
+/** Tipos que sí aceptan cocina */
+const KITCHEN_ALLOWED = new Set(["casa", "departamento", "oficina"]);
+
+async function isKitchenAllowedByTypeId(typeId?: number) {
+  if (!typeId) return true; // si no viene, no forzamos
+  const t = await prisma.propertyType.findUnique({ where: { id: typeId } });
+  const name = t?.name?.trim().toLowerCase() || "";
+  return KITCHEN_ALLOWED.has(name);
+}
+
 
 /* ------------------------- Orden seguro ------------------------- */
 type SortOrder = "asc" | "desc";
@@ -133,6 +147,7 @@ export const getPropiedades = async (req: Request, res: Response) => {
       orderBy = "createdAt:desc",
       q,
       titulo,
+      kitchen
     } = req.query as any;
 
     // Orden seguro
@@ -165,6 +180,8 @@ export const getPropiedades = async (req: Request, res: Response) => {
     if (comunaId) and.push({ comunaId: Number(comunaId) });
     if (ciudadId) and.push({ comuna: { ciudadId: Number(ciudadId) } });
     if (regionId) and.push({ comuna: { ciudad: { regionId: Number(regionId) } } });
+    if (kitchen !== undefined) and.push({ kitchen: parseBool(kitchen) });
+    
 
     if (minPrecio || maxPrecio) {
       const precio: { gte?: number; lte?: number } = {};
@@ -250,7 +267,8 @@ export const getPropiedadById = async (req: Request, res: Response) => {
       ufRate: uf,
       ufDate: dateISO,
       ufSource: source,
-      ufCalc, // para editar
+      ufCalc,
+      kitchen: Boolean(p.kitchen),
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -363,7 +381,12 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
       comunaId,
       statusId,
       typeId,
+      kitchen,
     } = req.body;
+
+    const allowKitchen = await isKitchenAllowedByTypeId(Number(typeId));
+    const kitchenValue = allowKitchen ? parseBool(kitchen) : false;
+
 
     const propiedad = await prisma.propiedad.create({
       data: {
@@ -391,6 +414,7 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
         publishedAt: publishedAt ? new Date(publishedAt) : undefined,
         usuario: { connect: { id: Number(usuarioId) } },
         comuna: { connect: { id: Number(comunaId) } },
+        kitchen: kitchenValue,
       },
     });
 
@@ -493,7 +517,18 @@ export const updatePropiedad = async (req: Request, res: Response) => {
       comunaId,
       statusId,
       typeId,
+      kitchen, 
     } = req.body;
+
+    // Si viene un typeId nuevo úsalo; si no, mira el actual de BD
+const current = await prisma.propiedad.findUnique({
+  where: { id: Number(id) },
+  select: { typeId: true },
+});
+
+const finalTypeId = typeId !== undefined ? Number(typeId) : current?.typeId;
+const allowKitchen = await isKitchenAllowedByTypeId(finalTypeId);
+
 
     const dataUpdate: any = {
       ...(activo !== undefined ? { activo: parseBool(activo) } : {}),
@@ -524,6 +559,15 @@ export const updatePropiedad = async (req: Request, res: Response) => {
     }
 
     // Relaciones: conectar solo si vienen IDs
+
+    if (kitchen !== undefined) {
+  dataUpdate.kitchen = allowKitchen ? parseBool(kitchen) : false;
+}
+
+// Si además cambiaste el typeId y ese tipo NO permite cocina, fuerza false
+if (typeId !== undefined && !allowKitchen) {
+  dataUpdate.kitchen = false;
+}
     if (statusId !== undefined) {
       dataUpdate.status = { connect: { id: Number(statusId) } };
     }

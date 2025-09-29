@@ -81,6 +81,7 @@ model Propiedad {
   comuna       Comuna          @relation(fields: [comunaId], references: [id])
   parking      Int?
   bodega       Int?
+  kitchen Boolean              @default(false)
   yearBuilt    Int?
   expenses     Int?
   youtubeUrl   String?         @db.VarChar(255) @map("youtube_url")
