@@ -77,6 +77,10 @@ model Propiedad {
   address      String?
   lat          Float?
   lng          Float?
+  showExactLocation Boolean     @default(true) @map("show_exact_location")
+  referenceAddress  String?     @map("reference_address")
+  referenceLat      Float?      @map("reference_lat")
+  referenceLng      Float?      @map("reference_lng")
   comunaId     Int
   comuna       Comuna          @relation(fields: [comunaId], references: [id])
   parking      Int?

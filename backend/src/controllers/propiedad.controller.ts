@@ -239,6 +239,42 @@ export const getPropiedades = async (req: Request, res: Response) => {
   }
 };
 
+// export const getPropiedadById = async (req: Request, res: Response) => {
+//   try {
+//     const { id } = req.params;
+
+//     const p = await prisma.propiedad.findUnique({
+//       where: { id: Number(id) },
+//       include: {
+//         status: true,
+//         type: true,
+//         comuna: { include: { ciudad: { include: { region: true } } } },
+//       },
+//     });
+//     if (!p) return res.status(404).json({ error: "Propiedad no encontrada" });
+
+//     // UF del día y cálculo sugerido
+//     const { uf, dateISO, source } = await fetchUf();
+//     const ufCalc = p.precio ? clpToUf(p.precio, uf) : null;
+
+//     res.json({
+//       ...p,
+//       statusName: p.status?.name ?? "",
+//       typeName: p.type?.name ?? "",
+//       regionName: p.comuna?.ciudad?.region?.nombre ?? "",
+//       ciudadName: p.comuna?.ciudad?.nombre ?? "",
+//       comunaName: p.comuna?.nombre ?? "",
+//       ufRate: uf,
+//       ufDate: dateISO,
+//       ufSource: source,
+//       ufCalc,
+//       kitchen: Boolean(p.kitchen),
+//     });
+//   } catch (error: any) {
+//     res.status(400).json({ error: error.message });
+//   }
+// };
+
 export const getPropiedadById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -253,9 +289,26 @@ export const getPropiedadById = async (req: Request, res: Response) => {
     });
     if (!p) return res.status(404).json({ error: "Propiedad no encontrada" });
 
-    // UF del día y cálculo sugerido
+    // UF del día
     const { uf, dateISO, source } = await fetchUf();
     const ufCalc = p.precio ? clpToUf(p.precio, uf) : null;
+
+    // Determinar qué ubicación mostrar
+    const showExact = p.showExactLocation ?? await shouldShowExactLocation(p.typeId);
+    
+    const displayLocation = showExact 
+      ? {
+          address: p.address,
+          lat: p.lat,
+          lng: p.lng,
+          isReference: false
+        }
+      : {
+          address: p.referenceAddress || `Sector ${p.comuna?.nombre || ''}`,
+          lat: p.referenceLat || p.lat, 
+          lng: p.referenceLng || p.lng,
+          isReference: true
+        };
 
     res.json({
       ...p,
@@ -264,6 +317,12 @@ export const getPropiedadById = async (req: Request, res: Response) => {
       regionName: p.comuna?.ciudad?.region?.nombre ?? "",
       ciudadName: p.comuna?.ciudad?.nombre ?? "",
       comunaName: p.comuna?.nombre ?? "",
+      
+      // Ubicación procesada
+      ...displayLocation,
+      showExactLocation: showExact,
+      
+      // UF
       ufRate: uf,
       ufDate: dateISO,
       ufSource: source,
@@ -367,11 +426,15 @@ export const createPropiedad = async (req: AuthRequest, res: Response) => {
       bathrooms,
       area,
       builtArea,
-      usableArea,         // <-- NUEVO
-      youtubeUrl,         // <-- NUEVO
+      usableArea,         
+      youtubeUrl,       
       address,
       lat,
       lng,
+      showExactLocation,
+      referenceAddress,
+      referenceLat,
+      referenceLng,
       parking,
       bodega,
       yearBuilt,
@@ -503,11 +566,15 @@ export const updatePropiedad = async (req: Request, res: Response) => {
       bathrooms,
       area,
       builtArea,
-      usableArea,   // <-- NUEVO
-      youtubeUrl,   // <-- NUEVO
+      usableArea,   
+      youtubeUrl,   
       address,
       lat,
       lng,
+      showExactLocation,
+      referenceAddress,
+      referenceLat,
+      referenceLng,
       parking,
       bodega,
       yearBuilt,
@@ -544,6 +611,13 @@ const allowKitchen = await isKitchenAllowedByTypeId(finalTypeId);
       ...(address !== undefined ? { address } : {}),
       ...(lat !== undefined ? { lat: toNum(lat) } : {}),
       ...(lng !== undefined ? { lng: toNum(lng) } : {}),
+
+      ...(showExactLocation !== undefined ? { showExactLocation: parseBool(showExactLocation) } : {}),
+      ...(referenceAddress !== undefined ? { referenceAddress } : {}),
+      ...(referenceLat !== undefined ? { referenceLat: toNum(referenceLat) } : {}),
+      ...(referenceLng !== undefined ? { referenceLng: toNum(referenceLng) } : {}),
+      
+
       ...(parking !== undefined ? { parking: toNum(parking) } : {}),
       ...(bodega !== undefined ? { bodega: toNum(bodega) } : {}),
       ...(yearBuilt !== undefined ? { yearBuilt: toNum(yearBuilt) } : {}),
@@ -560,14 +634,30 @@ const allowKitchen = await isKitchenAllowedByTypeId(finalTypeId);
 
     // Relaciones: conectar solo si vienen IDs
 
-    if (kitchen !== undefined) {
-  dataUpdate.kitchen = allowKitchen ? parseBool(kitchen) : false;
-}
+//     if (kitchen !== undefined) {
+//   dataUpdate.kitchen = allowKitchen ? parseBool(kitchen) : false;
+// }
+if (kitchen !== undefined) {
+      const current = await prisma.propiedad.findUnique({
+        where: { id: Number(id) },
+        select: { typeId: true },
+      });
+      const finalTypeId = typeId !== undefined ? Number(typeId) : current?.typeId;
+      const allowKitchen = await isKitchenAllowedByTypeId(finalTypeId);
+      dataUpdate.kitchen = allowKitchen ? parseBool(kitchen) : false;
+    }
 
 // Si además cambiaste el typeId y ese tipo NO permite cocina, fuerza false
-if (typeId !== undefined && !allowKitchen) {
-  dataUpdate.kitchen = false;
-}
+// if (typeId !== undefined && !allowKitchen) {
+//   dataUpdate.kitchen = false;
+// }
+if (typeId !== undefined) {
+      const allowKitchen = await isKitchenAllowedByTypeId(Number(typeId));
+      if (!allowKitchen) {
+        dataUpdate.kitchen = false;
+      }
+      dataUpdate.type = { connect: { id: Number(typeId) } };
+    }
     if (statusId !== undefined) {
       dataUpdate.status = { connect: { id: Number(statusId) } };
     }
@@ -603,3 +693,12 @@ export const deletePropiedad = async (req: Request, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+async function shouldShowExactLocation(typeId?: number): Promise<boolean> {
+  if (!typeId) return true;
+  const type = await prisma.propertyType.findUnique({ where: { id: typeId } });
+  const typeName = type?.name?.trim().toLowerCase() || "";
+  
+  // Casas NO muestran ubicación exacta por defecto
+  return typeName !== "casa";
+}
